@@ -11,50 +11,42 @@ if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
     throw "GitHub CLI (gh) is required."
 }
 
-
-& gh auth status *> $null
-if ($LASTEXITCODE -ne 0) {
-    throw "Run 'gh auth login' first."
+$user = & gh api user --jq .login 2>&1
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace(($user | Out-String).Trim())) {
+    $detail = ($user | ForEach-Object { $_.ToString() }) -join "`n"
+    throw "GitHub API authentication failed.`n$detail"
 }
 
 $origin = (& git remote get-url origin 2>$null)
 if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($origin)) {
-    throw @"
-Remote 'origin' is not configured.
-
-Check:
-  git remote -v
-
-If the GitHub repository already exists:
-  git remote add origin <github-repository-url>
-
-If it does not exist yet, create/publish the repository first, then rerun this script.
-"@
+    throw "Remote 'origin' is not configured."
 }
 
 $repoJson = (& gh repo view --json nameWithOwner 2>$null)
 if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($repoJson)) {
-    throw "GitHub CLI could not resolve the repository from origin '$origin'. Verify 'gh auth status' and 'git remote -v'."
+    throw "GitHub CLI could not resolve the repository from origin '$origin'."
 }
-
-$repoObject = $repoJson | ConvertFrom-Json
-if ($null -eq $repoObject -or -not ($repoObject.PSObject.Properties.Name -contains "nameWithOwner")) {
-    throw "GitHub CLI returned repository metadata without 'nameWithOwner'. Verify origin points to a GitHub repository."
-}
-
-$repo = [string]$repoObject.nameWithOwner
+$repo = [string](($repoJson | ConvertFrom-Json).nameWithOwner)
 if ([string]::IsNullOrWhiteSpace($repo)) {
     throw "Could not determine GitHub repository owner/name."
 }
+
+$repoRaw = & gh api `
+    -H "Accept: application/vnd.github+json" `
+    -H "X-GitHub-Api-Version: 2026-03-10" `
+    "repos/$repo"
+if ($LASTEXITCODE -ne 0) {
+    throw "Could not read repository settings."
+}
+$r = $repoRaw | ConvertFrom-Json
+
 $raw = & gh api `
     -H "Accept: application/vnd.github+json" `
     -H "X-GitHub-Api-Version: 2026-03-10" `
     "repos/$repo/branches/$Branch/protection"
-
 if ($LASTEXITCODE -ne 0) {
     throw "Could not read branch protection."
 }
-
 $p = $raw | ConvertFrom-Json
 
 function Get-OptionalPropertyValue {
@@ -64,10 +56,7 @@ function Get-OptionalPropertyValue {
     )
 
     $property = $Object.PSObject.Properties[$Name]
-    if ($null -eq $property) {
-        return $null
-    }
-
+    if ($null -eq $property) { return $null }
     return $property.Value
 }
 
@@ -87,12 +76,28 @@ if ($null -ne $requiredStatusChecks) {
     }
 }
 
-$requiredPullRequestReviews = Get-OptionalPropertyValue -Object $p -Name "required_pull_request_reviews"
+$prRule = Get-OptionalPropertyValue -Object $p -Name "required_pull_request_reviews"
+$pullRequestRequired = ($null -ne $prRule)
+$requiredApprovalCount = -1
+$codeOwnerReviewRequired = $false
+$lastPushApprovalRequired = $false
 
-# GitHub omits `required_pull_request_reviews` entirely when no PR review
-# requirement is configured. In this project that is the expected state:
-# the human gate is explicit merge approval, not a separate GitHub review click.
-$humanReviewRequired = ($null -ne $requiredPullRequestReviews)
+if ($pullRequestRequired) {
+    $approvalProp = $prRule.PSObject.Properties["required_approving_review_count"]
+    if ($null -ne $approvalProp) {
+        $requiredApprovalCount = [int]$approvalProp.Value
+    }
+
+    $codeOwnerProp = $prRule.PSObject.Properties["require_code_owner_reviews"]
+    if ($null -ne $codeOwnerProp) {
+        $codeOwnerReviewRequired = [bool]$codeOwnerProp.Value
+    }
+
+    $lastPushProp = $prRule.PSObject.Properties["require_last_push_approval"]
+    if ($null -ne $lastPushProp) {
+        $lastPushApprovalRequired = [bool]$lastPushProp.Value
+    }
+}
 
 $missing = @($RequiredChecks | Where-Object { $_ -notin $contexts })
 
@@ -103,11 +108,18 @@ $result = [ordered]@{
     missingChecks               = $missing
     strictStatusChecks          = $strictStatusChecks
     enforceAdmins               = [bool]$p.enforce_admins.enabled
-    humanReviewRequired         = $humanReviewRequired
+    pullRequestRequired         = $pullRequestRequired
+    requiredApprovalCount       = $requiredApprovalCount
+    codeOwnerReviewRequired     = $codeOwnerReviewRequired
+    lastPushApprovalRequired    = $lastPushApprovalRequired
     linearHistory               = [bool]$p.required_linear_history.enabled
     forcePushAllowed            = [bool]$p.allow_force_pushes.enabled
     deletionAllowed             = [bool]$p.allow_deletions.enabled
     conversationResolution      = [bool]$p.required_conversation_resolution.enabled
+    squashMergeAllowed          = [bool]$r.allow_squash_merge
+    mergeCommitAllowed          = [bool]$r.allow_merge_commit
+    rebaseMergeAllowed          = [bool]$r.allow_rebase_merge
+    deleteBranchOnMerge         = [bool]$r.delete_branch_on_merge
 }
 
 $result | ConvertTo-Json -Depth 10
@@ -116,11 +128,18 @@ if (
     -not $result.requiredChecksConfigured -or
     -not $result.strictStatusChecks -or
     -not $result.enforceAdmins -or
-    $result.humanReviewRequired -or
+    -not $result.pullRequestRequired -or
+    $result.requiredApprovalCount -ne 0 -or
+    $result.codeOwnerReviewRequired -or
+    $result.lastPushApprovalRequired -or
     -not $result.linearHistory -or
     $result.forcePushAllowed -or
     $result.deletionAllowed -or
-    -not $result.conversationResolution
+    -not $result.conversationResolution -or
+    -not $result.squashMergeAllowed -or
+    $result.mergeCommitAllowed -or
+    $result.rebaseMergeAllowed -or
+    -not $result.deleteBranchOnMerge
 ) {
     exit 2
 }

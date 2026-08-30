@@ -10,9 +10,15 @@ param(
 $repoRoot = Set-RepoRoot
 Assert-OriginExists
 Assert-CleanWorkingTree
+Assert-NoActiveTaskState
 
 if ($Base -ne $script:DefaultBaseBranch) {
     throw "Autonomous tasks currently permit only base '$($script:DefaultBaseBranch)'."
+}
+
+$current = Get-CurrentBranch
+if ($current -ne $Base) {
+    throw "Start autonomous tasks from local '$Base'; current branch is '$current'."
 }
 
 if ([string]::IsNullOrWhiteSpace($BranchName)) {

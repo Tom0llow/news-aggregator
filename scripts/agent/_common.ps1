@@ -4,6 +4,7 @@ $ErrorActionPreference = "Stop"
 $script:AgentBranchPrefix = "agent/"
 $script:DefaultBaseBranch = "main"
 $script:TaskStateFileName = "codex-task.json"
+$script:RequiredCheckNames = @("Quality", "Test")
 
 function Assert-CommandExists {
     param([Parameter(Mandatory = $true)][string]$Name)
@@ -121,12 +122,48 @@ function Assert-OriginExists {
     }
 }
 
-function Assert-GhAuthenticated {
+function Get-GhLogin {
     Assert-CommandExists -Name "gh"
-    & gh auth status *> $null
-    if ($LASTEXITCODE -ne 0) {
-        throw "GitHub CLI is not authenticated. Run 'gh auth login' manually once."
+
+    try {
+        $login = Invoke-Gh @("api", "user", "--jq", ".login")
     }
+    catch {
+        $detail = $_.Exception.Message
+
+        if ($detail -match 'proxyconnect' -or $detail -match '127\.0\.0\.1:9') {
+            throw @"
+GitHub access is still running inside the network-disabled Codex sandbox.
+
+The GitHub command must be executed through an allow-listed host-side rule.
+Reload/restart Codex after updating .codex/rules/default.rules, then retry
+scripts/agent/github-preflight.ps1.
+
+Actual error:
+$detail
+"@
+        }
+
+        throw @"
+GitHub API authentication/access failed.
+
+Do not diagnose this solely with sandboxed 'gh auth status'.
+Verify the host terminal can run 'gh api user --jq .login'.
+
+Actual error:
+$detail
+"@
+    }
+
+    if ([string]::IsNullOrWhiteSpace($login)) {
+        throw "GitHub API succeeded but no login was returned."
+    }
+
+    return $login.Trim()
+}
+
+function Assert-GhAuthenticated {
+    $null = Get-GhLogin
 }
 
 function Get-TaskStatePath {
@@ -135,6 +172,24 @@ function Get-TaskStatePath {
         return [System.IO.Path]::GetFullPath($gitPath)
     }
     return [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $gitPath))
+}
+
+function Assert-NoActiveTaskState {
+    $path = Get-TaskStatePath
+    if (Test-Path -LiteralPath $path) {
+        $raw = Get-Content -LiteralPath $path -Raw
+        throw @"
+An active/stale guarded task state already exists:
+$path
+
+Do not overwrite another task's identity. Finish/merge the existing task first.
+If the state is known to be stale, remove it manually only after confirming that
+no active autonomous task depends on it.
+
+State:
+$raw
+"@
+    }
 }
 
 function Read-TaskStateRaw {
@@ -280,16 +335,12 @@ function Get-PrObject {
 function Get-PrChecks {
     param([Parameter(Mandatory = $true)][int]$PrNumber)
 
-    # `gh pr checks` uses non-zero exit codes to communicate check state
-    # (for example 8 while checks are pending). That is expected state, not a
-    # command-execution failure, so do not route this call through Invoke-Gh.
     $output = & gh pr checks "$PrNumber" --json "bucket,name,state,workflow,link" 2>&1
     $exitCode = $LASTEXITCODE
     $json = ($output | ForEach-Object { $_.ToString() }) -join "`n"
 
-    # 0 = successful command / checks currently passing
-    # 1 = one or more checks failed
-    # 8 = one or more checks pending
+    # gh uses status-like exit codes here:
+    # 0 = currently passing, 1 = one or more failed, 8 = one or more pending.
     if ($exitCode -notin @(0, 1, 8)) {
         throw "gh pr checks failed unexpectedly ($exitCode):`n$json"
     }
@@ -299,6 +350,45 @@ function Get-PrChecks {
     }
 
     return @($json | ConvertFrom-Json)
+}
+
+function Get-MissingRequiredCheckNames {
+    param(
+        [Parameter(Mandatory = $true)]$Checks,
+        [Parameter()][string[]]$RequiredChecks = $script:RequiredCheckNames
+    )
+
+    $present = @($Checks | ForEach-Object { [string]$_.name })
+    return @($RequiredChecks | Where-Object { $_ -notin $present })
+}
+
+function Assert-ChecksReady {
+    param(
+        [Parameter(Mandatory = $true)]$Checks,
+        [Parameter()][string[]]$RequiredChecks = $script:RequiredCheckNames
+    )
+
+    $checksArray = @($Checks)
+    if ($checksArray.Count -eq 0) {
+        throw "No CI/status checks found."
+    }
+
+    $missing = @(Get-MissingRequiredCheckNames -Checks $checksArray -RequiredChecks $RequiredChecks)
+    if ($missing.Count -gt 0) {
+        throw "Required checks have not appeared: $($missing -join ', ')."
+    }
+
+    $blocking = @($checksArray | Where-Object {
+        $bucket = [string]$_.bucket
+        ($bucket -ne "pass") -and ($bucket -ne "skipping")
+    })
+
+    if ($blocking.Count -gt 0) {
+        $summary = $blocking | ForEach-Object {
+            "$($_.workflow) / $($_.name): $($_.state) [$($_.bucket)]"
+        }
+        throw "Non-passing checks remain:`n- $($summary -join "`n- ")"
+    }
 }
 
 function Assert-PrMatchesTask {

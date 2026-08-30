@@ -2,51 +2,56 @@
 
 ## 1. Strategy
 
-Use a lightweight GitHub Flow / trunk-based workflow.
+`main` is the permanent integration branch.
 
-`main` is the only permanent integration branch unless the repository explicitly documents otherwise.
+Normal changes use short-lived branches and Pull Requests.
 
-Changes should be developed on short-lived branches and merged through Pull Requests.
+There are two execution modes:
+
+1. **manual/human workflow**
+2. **guarded autonomous Codex workflow**
+
+Rules for one mode must not be applied to the other in a way that creates
+contradictions.
 
 ## 2. Branch naming
 
-Use:
+Manual branches may use:
 
 ```text
-feat/<issue-or-topic>
-fix/<issue-or-topic>
+feat/<topic>
+fix/<topic>
 refactor/<topic>
 test/<topic>
 docs/<topic>
 chore/<topic>
 ```
 
-Examples:
+Guarded autonomous branches use only:
 
 ```text
-feat/123-user-auth
-fix/231-timeout-handling
-refactor/prediction-service
-docs/local-setup
+agent/<generated-task-name>-<timestamp>
 ```
 
-Keep names short and descriptive.
+Codex must create autonomous branches only through:
+
+```powershell
+pwsh -NoProfile -File scripts/agent/start-task.ps1 -TaskName "<task>"
+```
 
 ## 3. Before starting work
 
-Inspect repository state:
+Inspect:
 
 ```bash
 git status --short --branch
 git log -5 --oneline
 ```
 
-If the working tree already contains changes:
+Never discard pre-existing user work.
 
-- assume they may belong to the user,
-- do not discard them,
-- do not include them in the task unless relevant,
-- mention conflicts if they prevent safe progress.
+The autonomous workflow requires a clean worktree, local `main`, and no existing
+guarded task state before creating a task branch.
 
 ## 4. Commit format
 
@@ -56,7 +61,7 @@ Use Conventional Commits:
 <type>(<optional-scope>): <description>
 ```
 
-Allowed common types:
+Common types:
 
 ```text
 feat
@@ -70,175 +75,132 @@ ci
 chore
 ```
 
-Examples:
-
-```text
-feat(api): add customer lookup endpoint
-fix(parser): handle empty input
-refactor(domain): extract pricing policy
-test(auth): cover expired token case
-docs: document local setup
-```
-
-Use imperative, concise descriptions.
-
 ## 5. Commit scope
 
 One commit should represent one coherent logical change.
 
-Do not mix unrelated concerns such as:
+Do not mix unrelated refactors, formatting, dependency upgrades, or generated
+content.
 
-- feature implementation,
-- unrelated refactoring,
-- mass formatting,
-- dependency upgrades,
-- generated files.
+## 6. Commit policy
 
-A commit should be understandable and revertible on its own whenever practical.
+Outside `autonomous-task`, do not create commits unless the user asks or the
+surrounding workflow explicitly expects them.
 
-## 6. Agent commit policy
+Inside `autonomous-task`, the coordinator is authorized to commit through:
 
-Codex may edit files and run validation as part of normal task execution.
+```powershell
+pwsh -NoProfile -File scripts/agent/commit-task.ps1 -Message "<message>"
+```
 
-Do not create commits unless:
+The implementation/reviewer/fixer subagents themselves never commit.
 
-- the user explicitly asks for commits, or
-- the surrounding workflow explicitly states that local commits are expected.
-
-When creating a commit:
-
-1. inspect `git diff`,
-2. stage only task-related files/hunks,
-3. verify `git diff --cached`,
-4. use a Conventional Commit message,
-5. do not amend existing commits unless explicitly instructed.
-
-Never commit secrets or local environment files.
+Do not amend or rewrite published history in the autonomous workflow.
 
 ## 7. Remote operations
 
-Do not perform these operations unless the user explicitly asks:
+Outside `autonomous-task`, push/PR/merge actions require explicit user intent.
+
+Inside `autonomous-task`, these are authorized without another user turn:
 
 ```text
-git push
-gh pr create
-gh pr merge
-git merge
-git rebase against a shared branch
+guarded agent/* branch creation
+guarded commit
+guarded push
+guarded PR creation
+CI polling / read-only PR inspection
 ```
 
-Never force-push unless the user explicitly requests it and the repository policy permits it.
+Use only the wrappers in `scripts/agent/`.
 
-Prefer:
+The autonomous workflow must stop at `MERGE_READY`.
 
-```bash
-git push --force-with-lease
-```
+Final merge requires explicit user approval of the exact reviewed HEAD SHA and
+then uses `merge-task.ps1`.
 
-over `git push --force` when rewriting a non-shared feature branch is intentionally required.
+## 8. Force push
 
-## 8. Prohibited destructive operations
+Codex must never force-push in the autonomous workflow.
 
-Do not run:
+`main` must reject force pushes.
 
-```bash
-git reset --hard
-git clean -fd
-git clean -fdx
-git checkout -- .
-```
-
-without explicit user instruction and a clear understanding of what will be lost.
-
-Do not rewrite published/shared history by default.
+Manual history repair is an exceptional human operation and is outside the
+autonomous contract.
 
 ## 9. Pull Requests
 
-Each PR should have one clear purpose.
+Each PR must have one clear purpose.
 
-Before opening a PR:
+Before publication:
 
-- sync with the current target branch if necessary,
-- run required validation,
-- remove debug code,
-- review the final diff,
-- ensure documentation is updated when needed.
+- validation passes
+- diff is scoped
+- no secrets/debug junk
+- documentation is updated when needed
 
-Recommended PR content:
+PR body:
 
 ```text
 ## Summary
-- What changed
-- Why it changed
 
 ## Validation
-- Commands/tests run
+
+## Architecture / ADR
 
 ## Risks / Notes
-- Migration, compatibility, rollout, or known limitations
 ```
 
-## 10. Merge policy
+## 10. CI
 
-Default recommendation: **Squash Merge** into `main`.
+Required checks are:
 
-Benefits:
-
-- keeps `main` history concise,
-- allows iterative WIP commits on feature branches,
-- produces one logical revert unit per PR.
-
-Use another merge strategy only when the repository explicitly requires it.
-
-## 11. Keeping branches current
-
-For a private short-lived branch, prefer rebase when the team policy permits:
-
-```bash
-git fetch origin
-git rebase origin/main
+```text
+Quality
+Test
 ```
 
-For shared branches, avoid rewriting collaborators' history. Prefer merge or coordinate before rebasing.
+The workflow must not declare CI successful until both required check names
+exist and all checks are passing/skipping.
 
-Never resolve conflicts by blindly choosing `ours` or `theirs`. Understand each conflict.
+Known baseline CI failures are fixed before unrelated autonomous work begins.
 
-## 12. Parallel Codex / agent work
+## 11. Merge policy
 
-When multiple agents work concurrently, isolate each task with a separate branch and preferably a separate Git worktree.
+Repository policy is squash-only.
 
-Example:
+`main` requires:
 
-```bash
-git fetch origin
-git worktree add ../worktrees/feature-a -b feat/feature-a origin/main
-git worktree add ../worktrees/fix-b -b fix/fix-b origin/main
-```
+- Pull Request association
+- 0 mandatory GitHub human approvals
+- `Quality` and `Test`
+- strict/up-to-date status checks
+- linear history
+- resolved conversations
+- no force push
+- no deletion
 
-Rules:
+The human safety boundary is the explicit approval of the exact MERGE_READY
+HEAD, not an additional GitHub Approve click.
 
-- one task per branch/worktree,
-- do not let multiple agents edit the same worktree concurrently,
-- integrate only after each branch passes its own validation,
-- resolve conflicts deliberately in the integration branch/worktree.
+## 12. Parallelism
 
-Remove finished worktrees after integration:
+Writable agents are serialized in the current worktree.
 
-```bash
-git worktree remove ../worktrees/feature-a
-```
+Do not start a second guarded autonomous task while
+`.git/codex-task.json` represents an active task.
 
-## 13. Generated files and lock files
+Read-only reviewer/analysis agents may run concurrently when safe.
 
-Commit generated files only when repository policy requires them.
+## 13. Dependencies
 
-When dependencies change, update and commit the corresponding lock file in the same logical change.
+Dependency additions/removals are an explicit approval boundary.
 
-Do not manually edit generated lock files unless the toolchain explicitly requires it.
+When approved, update `pyproject.toml` and `uv.lock` together and rerun the full
+validation suite.
 
-## 14. Final Git review
+## 14. Final review
 
-Before declaring the task complete:
+Before publication/merge, inspect:
 
 ```bash
 git status --short
@@ -246,10 +208,5 @@ git diff --check
 git diff
 ```
 
-If commits were created, also inspect:
-
-```bash
-git log --oneline --decorate -5
-```
-
-Confirm that no unrelated files or accidental formatting changes are present.
+Do not claim validation or review passed unless it actually ran on the current
+HEAD.
