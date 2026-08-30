@@ -2,181 +2,170 @@
 
 ## Goal
 
-Normal successful operation should require human interaction only twice:
+Normal successful operation:
 
 ```text
-1. Human: "Implement X"
-2. Human: "Merge the reviewed HEAD"
+1. Human: provide requirement
+2. Human: approve/reject exact MERGE_READY HEAD
 ```
 
-Everything between those points is bounded, auditable automation.
+Everything between those points is bounded automation.
+
+## Security model
+
+Ordinary `workspace-write` sandbox commands have shell network access disabled.
+
+Git/GitHub operations that need the network run outside the sandbox only through:
+
+- narrowly allow-listed read-only `gh` commands, or
+- guarded `scripts/agent/*.ps1` wrappers.
+
+This is intentional. Do not solve GitHub connectivity by broadly opening the
+workspace sandbox or by exposing all TOKEN/SECRET environment variables.
+
+If Codex reports:
+
+```text
+proxyconnect tcp: dial tcp 127.0.0.1:9
+```
+
+for a guarded GitHub wrapper, the wrapper was not matched by the active
+exec-policy and fell back into the offline sandbox. Reload/restart Codex after
+updating `.codex/rules/default.rules`; do not treat that message as proof that
+the GitHub token is invalid.
 
 ## Runtime lifecycle
 
 ```text
-Requirement
+requirement
   ↓
-guarded `agent/*` branch
+host-side GitHub/repository/baseline-CI preflight
   ↓
-Implementer
+guarded agent/* branch from fresh origin/main
   ↓
-Independent local Reviewer
+implementer
   ↓
-Fixer (only validated P0/P1/P2, max 2)
+independent reviewer
   ↓
-Local validation
+bounded fixer / fresh review
+  ↓
+Ruff / mypy / pytest
   ↓
 guarded commit + push + PR
   ↓
-GitHub CI
-  ├─ fail → CI Analyst → Fixer → commit/push (max 2)
+Quality + Test
+  ├─ fail → CI analyst → bounded fixer → repush
   └─ pass
   ↓
-Independent final PR Reviewer
-  ├─ P0/P1/P2 → Fixer → commit/push → CI → fresh review (max 2)
+fresh full-PR reviewer
+  ├─ P0/P1/P2 → fixer → CI → fresh review
   └─ clean
   ↓
 MERGE_READY exact HEAD
   ↓
-HUMAN APPROVAL
+human exact-HEAD approval
   ↓
-guarded squash merge with exact-HEAD match
+guarded squash merge
 ```
 
-## Why the merge remains human-controlled
+## Baseline requirement
 
-Branch creation, commits, pushes, and PR creation are reversible or isolated to
-`agent/*` branches.
+`origin/main` CI must already be green before an unrelated autonomous task
+starts.
 
-Merging changes `main`, so it is the explicit human gate.
+This prevents the agent from confusing pre-existing infrastructure failures with
+task regressions.
 
-`merge-task.ps1` requires the exact SHA presented as MERGE_READY. If another
-commit appears after approval, the merge is refused.
+## GitHub authentication
 
-## One-time machine setup
+Do not use sandboxed `gh auth status` as the workflow's source of truth.
 
-```powershell
-gh auth login
+The guarded preflight performs a real API request:
+
+```text
+gh api user
 ```
 
-Install Git, GitHub CLI, PowerShell, Python/uv, and VS Code/Codex.
+from the allow-listed host execution context.
 
-Project-local `.codex/` is applied only for a trusted project.
+## Repository policy
 
-## One-time repository setup
+Expected server-side policy:
 
-First make sure the CI workflow has run at least once, then configure protection:
+- PR required for changes to `main`
+- GitHub approving reviewers required: 0
+- required checks: `Quality`, `Test`
+- strict status checks
+- admins also protected
+- linear history
+- conversations resolved
+- force push disabled
+- branch deletion disabled
+- squash merge enabled
+- merge-commit/rebase-merge disabled
+- merged branches automatically deleted
+
+Configure/verify once from a trusted admin terminal:
 
 ```powershell
 pwsh -NoProfile -File scripts/github/configure-main-protection.ps1
-```
-
-This is an administrative operation and should require explicit approval.
-
-Verify:
-
-```powershell
 pwsh -NoProfile -File scripts/github/verify-main-protection.ps1
 ```
 
-Expected policy:
+## Machine setup
 
-- PR-based changes to `main`
-- required `Quality` and `Test` checks
-- strict/up-to-date required checks
-- admins also subject to protection
-- linear history
-- force push disabled
-- branch deletion disabled
-- conversations resolved
-- no mandatory GitHub human reviewer
+Required:
 
-The last point is intentional: human control is the final merge approval, not an
-additional GitHub "Approve" click.
+- Git
+- GitHub CLI
+- PowerShell 7 (`pwsh`)
+- Python 3.11
+- uv
+- VS Code + Codex
 
-## Normal usage
+Authenticate GitHub once from the host:
 
-Give Codex a concrete requirement, for example:
-
-```text
-顧客一覧をCSVエクスポートできるようにして。
-UTF-8、ヘッダーあり、空データにも対応。
+```powershell
+gh auth login
+gh auth setup-git
+gh api user --jq .login
 ```
 
-The project instructions should route this to `autonomous-task`.
+After changing `.codex/config.toml` or `.codex/rules/*.rules`, restart/reload the
+Codex session so project rules are re-read.
 
-When ready, Codex should return something like:
+## Repair loop limits
 
-```text
-MERGE_READY
-PR: #42
-URL: ...
-HEAD: abc123...
-CI: PASS
-AI final review: P0/P1/P2 = 0
-
-この HEAD (abc123...) を main に squash merge してよいですか？
-```
-
-Reply:
-
-```text
-mergeして
-```
-
-Codex must merge only that exact previously presented HEAD.
-
-## When more than two human interactions are expected
-
-Automation should stop early only for real blockers:
-
-- dirty working tree that may contain user work
-- missing GitHub auth or branch protection
-- materially ambiguous acceptance criteria
-- dependency addition requiring approval
-- security/product decision
-- repeated repair loops reaching their cap
-- external CI outage
-- PR identity/SHA mismatch
-
-These are safety exits, not normal workflow steps.
-
-## Bounded loops
-
-Automatic repair loops are deliberately finite:
-
-| Loop | Maximum fixer rounds |
+| Loop | Max fixer rounds |
 | --- | ---: |
-| Local code review | 2 |
-| CI failure repair | 2 |
+| Local review | 2 |
+| CI repair | 2 |
 | Final PR review | 2 |
 
-After the bound, return `BLOCKED` with remaining evidence.
+Exhaustion returns `BLOCKED` with evidence.
 
-## Security boundaries
+## Stale task state
 
-Allowed autonomous mutations are only the guarded wrappers.
+The workflow intentionally supports one active writable task per worktree.
 
-Raw commands such as these are blocked for Codex:
+If startup reports an existing task state, do not overwrite it.
 
-```text
-git add
-git commit
-git switch
-git push
-git merge
-git rebase
-gh pr create
-gh pr merge
-gh api
+Only after confirming there is no active task may a human remove the stale
+state path returned by:
+
+```powershell
+git rev-parse --git-path codex-task.json
 ```
 
-This does not prevent a human from using Git normally in their own terminal.
+## Final merge
 
-## Current VS Code caveat
+`merge-task.ps1` rechecks:
 
-Codex subagent workflows are available in current IDE releases, but client
-versions can differ in how the subagent lifecycle UI/tools are exposed.
+- recorded PR identity
+- exact MERGE_READY SHA
+- PR HEAD unchanged
+- mergeability/CLEAN state
+- `Quality` and `Test` present
+- all checks passing/skipping
 
-The orchestration therefore depends on bounded role prompts and fresh subagent
-contexts, not on recursive subagent spawning.
+It then performs a squash merge and cleans up the task branch/state.

@@ -1,20 +1,18 @@
 ---
 name: autonomous-task
-description: Run the full guarded coding lifecycle from a user requirement to MERGE_READY: branch, implementation, independent review/fix, commit, push, PR, CI remediation, final PR review, and readiness gate. Use for non-trivial implementation or bug-fix requests unless the user explicitly asks for local-only work.
+description: Run the full guarded coding lifecycle from a user requirement to MERGE_READY: preflight, branch, implementation, independent review/fix, commit, push, PR, CI remediation, final PR review, and readiness gate. Use for non-trivial implementation or bug-fix requests unless the user explicitly asks for local-only work.
 ---
-
 
 # Autonomous Task Orchestrator
 
-You are the coordinator for the repository's end-to-end autonomous development workflow.
-
-The intended human interaction is:
+The intended successful lifecycle is:
 
 ```text
-Human touch 1: requirement
-AI: branch -> develop -> review/fix -> PR -> CI/fix -> PR review/fix -> MERGE_READY
-Human touch 2: explicit merge approval
-AI: guarded merge
+Human: requirement
+AI: preflight -> agent/* -> implement/review/fix -> validate -> commit/push/PR
+    -> CI/fix -> final PR review/fix -> MERGE_READY
+Human: approve exact MERGE_READY HEAD
+AI: guarded squash merge
 ```
 
 Do not merge in this skill.
@@ -26,56 +24,68 @@ Do not merge in this skill.
 - CI fix: max 2 fixer rounds per PR HEAD lineage
 - final PR review fix: max 2 fixer rounds
 - never recursively start another `autonomous-task`
-- if a product/requirements decision is genuinely required, stop as BLOCKED instead of guessing
+- do not overwrite an existing guarded task state
+- stop as BLOCKED instead of guessing when a material product/security decision is required
 
-## Phase 0 — preflight
+## Phase 0 — guarded host preflight
 
-Run exactly one standalone guarded GitHub preflight command:
+Run exactly one standalone command:
 
 ```powershell
 pwsh -NoProfile -File scripts/agent/github-preflight.ps1
-````
+```
 
-Rules:
+Do not replace it with `gh auth status`.
 
-* Do not run `gh auth status` directly.
-* Do not diagnose GitHub authentication using sandboxed `gh`.
-* Do not recommend `gh auth refresh` solely because sandboxed `gh`
-  reports that the keyring token is invalid.
-* Do not chain this wrapper with `&&`, `;`, or pipes.
-* If this wrapper succeeds, treat GitHub authentication as valid.
+Do not chain it with `&&`, `;`, pipes, or another command.
+
+The preflight verifies:
+
+- GitHub API access through the host-side allow-listed wrapper
+- origin/main existence
+- repository/main protection policy
+- current main baseline CI is green
+
+If the error mentions `proxyconnect` or `127.0.0.1:9`, treat that as an
+exec-policy/rule-loading problem, not as proof of invalid GitHub credentials.
+Stop and instruct the user to reload/restart Codex after confirming the project
+rules are trusted and loaded.
+
+If baseline main CI is failing, stop. Do not start an unrelated task on a known
+broken baseline.
 
 ## Phase 1 — guarded task branch
-
-Start the task:
 
 ```powershell
 pwsh -NoProfile -File scripts/agent/start-task.ps1 -TaskName "<short task name>"
 ```
 
-The wrapper chooses a unique `agent/*` branch if none is supplied.
+Startup requires:
 
-If the working tree is not clean, stop rather than risking user work.
+- clean working tree
+- current local branch is `main`
+- no active/stale guarded task state
+- branch is created from fresh `origin/main`
 
-## Phase 2 — implement + local independent review
+## Phase 2 — implement + independent local review
 
 Spawn `implementer` with:
 
 - full requirement
-- acceptance criteria
-- architecture constraints
-- instruction not to commit/push
+- explicit acceptance criteria
+- relevant architecture/ADR constraints
+- instruction not to commit/push/PR/merge
 
-After implementation, inspect the complete diff.
+Inspect the complete diff.
 
-Spawn a fresh `reviewer` read-only.
+Spawn a fresh read-only `reviewer`.
 
 Validate reviewer findings yourself.
 
-For validated P0/P1/P2 findings, spawn `fixer`.
-Repeat with a fresh reviewer, maximum two fixer rounds.
+For validated P0/P1/P2 findings, spawn `fixer`, then re-review the complete
+current diff with a fresh reviewer. Maximum two fixer rounds.
 
-P3 findings may remain only if they do not affect acceptance criteria or merge safety; report them later.
+P3 may remain only when non-blocking and reported.
 
 ## Phase 3 — repository validation
 
@@ -88,95 +98,86 @@ uv run mypy src tests
 uv run pytest
 ```
 
-Use repository-defined equivalents when these tools are not configured.
-
 Do not publish known task-related failures.
 
 ## Phase 4 — commit / push / PR
 
-Generate one coherent Conventional Commit subject and use:
+Use only:
 
 ```powershell
 pwsh -NoProfile -File scripts/agent/commit-task.ps1 -Message "<type(scope): description>"
 pwsh -NoProfile -File scripts/agent/push-task.ps1
-```
-
-Create a PR with a body containing:
-
-- Summary
-- Validation
-- Architecture / ADR
-- Risks / Notes
-
-Use:
-
-```powershell
 pwsh -NoProfile -File scripts/agent/create-pr.ps1 -Title "<title>" -Body "<body>"
 ```
 
-Capture PR number, URL, and HEAD SHA.
+PR body must include:
+
+- Summary
+- Validation
+- Architecture / ADR impact
+- Risks / Notes
+
+Capture PR number, URL, and exact HEAD SHA.
 
 ## Phase 5 — CI stabilization
-
-Wait:
 
 ```powershell
 pwsh -NoProfile -File scripts/agent/wait-ci.ps1 -PrNumber <N>
 ```
 
-If CI fails, follow `.agents/skills/ci-fix/SKILL.md`.
+Required checks are exactly:
 
-After each pushed CI fix, wait for checks again.
+- `Quality`
+- `Test`
 
-Stop as BLOCKED if the CI fix bound is exhausted.
+If CI fails, follow `ci-fix`. After each fix commit/push, wait again.
+
+Stop as BLOCKED after two CI fixer rounds.
 
 ## Phase 6 — final PR review
 
-Follow `.agents/skills/pr-review/SKILL.md`.
+Follow `pr-review`.
 
-The final PR reviewer must inspect the complete current PR at the latest HEAD.
+The final reviewer must inspect the complete PR at the latest exact HEAD.
 
-If fixes are pushed, CI must pass again before another final review.
+Validated P0/P1/P2 findings require fix -> validation -> guarded commit/push ->
+CI -> fresh full-PR review.
 
-Stop as BLOCKED if the PR review fix bound is exhausted with P0/P1/P2 remaining.
+Never reuse a review from an older HEAD.
 
-## Phase 7 — MERGE_READY gate
-
-Run:
+## Phase 7 — MERGE_READY
 
 ```powershell
 pwsh -NoProfile -File scripts/agent/merge-ready.ps1 -PrNumber <N>
 ```
 
-Only if it returns `ready = true`, report:
+Only when ready, present:
 
 - PR number/title/URL
 - exact `headSha`
-- CI status
-- review status
-- remaining P3 findings, if any
+- `Quality` / `Test` status
+- final AI review P0/P1/P2 = 0
+- remaining P3, if any
 
-Then ask exactly for the final decision:
+Then ask:
 
 ```text
 この HEAD (<sha>) を main に squash merge してよいですか？
 ```
 
-Do not call `merge-task.ps1` in this turn unless the user has already explicitly approved that exact presented HEAD.
+Do not invoke `merge-task.ps1` until the user explicitly approves that exact SHA.
 
 ## BLOCKED conditions
 
-Return BLOCKED instead of silently changing the contract when:
+Return BLOCKED for:
 
-- working tree contains pre-existing changes
-- GitHub auth/protection is missing
-- requirements are materially ambiguous
-- dependency addition needs approval and is required
-- two local review fix rounds do not resolve P0/P1/P2
-- two CI fix rounds fail
-- two PR-review fix rounds leave P0/P1/P2
-- branch/PR HEAD identity checks fail
-- security-sensitive action requires a human decision
-
-State the minimum action needed from the user.
-
+- pre-existing/stale guarded task state
+- dirty worktree
+- GitHub host preflight failure
+- baseline main CI failure
+- missing/incorrect repository protection
+- materially ambiguous requirements
+- required dependency addition awaiting approval
+- exhausted local/CI/PR-review repair bounds
+- branch/PR/HEAD identity mismatch
+- security-sensitive decision requiring a human

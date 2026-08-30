@@ -1,157 +1,321 @@
-# .codex/rules/default.rules
+# Autonomous development execution policy.
 #
-# Autonomous development policy:
-# - safe local/read operations may proceed
-# - guarded task wrappers may create branch/commit/push/PR autonomously
-# - final merge requires a human approval prompt
-# - raw mutation paths are blocked
+# Important:
+# - `allow` means run outside the sandbox without an extra approval prompt.
+# - Git/GitHub network operations intentionally rely on these host-side rules.
+# - Windows path/executable spellings are enumerated to avoid accidental
+#   sandbox fallback (`127.0.0.1:9` proxy failures).
 
 # ---------------------------------------------------------------------------
 # Read-only Git inspection
 # ---------------------------------------------------------------------------
 
-prefix_rule(pattern = ["git", "status"], decision = "allow", justification = "Read-only repository inspection.")
-prefix_rule(pattern = ["git", "diff"], decision = "allow", justification = "Read-only diff inspection.")
-prefix_rule(pattern = ["git", "log"], decision = "allow", justification = "Read-only history inspection.")
-prefix_rule(pattern = ["git", "show"], decision = "allow", justification = "Read-only object inspection.")
-prefix_rule(pattern = ["git", "rev-parse"], decision = "allow", justification = "Read-only revision inspection.")
-prefix_rule(pattern = ["git", "merge-base"], decision = "allow", justification = "Read-only revision calculation.")
-prefix_rule(pattern = ["git", "ls-files"], decision = "allow", justification = "Read-only tracked-file listing.")
-prefix_rule(pattern = ["git", "branch", "--show-current"], decision = "allow", justification = "Read-only current branch inspection.")
+prefix_rule(
+    pattern = [["git", "git.exe"], "status"],
+    decision = "allow",
+    justification = "Read-only repository inspection.",
+)
+prefix_rule(
+    pattern = [["git", "git.exe"], "diff"],
+    decision = "allow",
+    justification = "Read-only diff inspection.",
+)
+prefix_rule(
+    pattern = [["git", "git.exe"], "log"],
+    decision = "allow",
+    justification = "Read-only history inspection.",
+)
+prefix_rule(
+    pattern = [["git", "git.exe"], "show"],
+    decision = "allow",
+    justification = "Read-only object inspection.",
+)
+prefix_rule(
+    pattern = [["git", "git.exe"], "rev-parse"],
+    decision = "allow",
+    justification = "Read-only revision inspection.",
+)
+prefix_rule(
+    pattern = [["git", "git.exe"], "merge-base"],
+    decision = "allow",
+    justification = "Read-only revision calculation.",
+)
+prefix_rule(
+    pattern = [["git", "git.exe"], "ls-files"],
+    decision = "allow",
+    justification = "Read-only tracked-file listing.",
+)
+prefix_rule(
+    pattern = [["git", "git.exe"], "branch", "--show-current"],
+    decision = "allow",
+    justification = "Read-only current branch inspection.",
+)
 
 # ---------------------------------------------------------------------------
-# Read-only GitHub operations used by CI/PR agents
+# Read-only GitHub commands
 # ---------------------------------------------------------------------------
 
-prefix_rule(pattern = ["gh", "auth", "status"], decision = "allow", justification = "Read-only GitHub authentication status.")
-prefix_rule(pattern = ["gh", "repo", "view"], decision = "allow", justification = "Read-only repository metadata.")
-prefix_rule(pattern = ["gh", "pr", "view"], decision = "allow", justification = "Read-only pull request metadata.")
-prefix_rule(pattern = ["gh", "pr", "diff"], decision = "allow", justification = "Read-only pull request diff.")
-prefix_rule(pattern = ["gh", "pr", "checks"], decision = "allow", justification = "Read-only pull request CI status.")
-prefix_rule(pattern = ["gh", "pr", "status"], decision = "allow", justification = "Read-only pull request status.")
-prefix_rule(pattern = ["gh", "run", "list"], decision = "allow", justification = "Read-only Actions run listing.")
-prefix_rule(pattern = ["gh", "run", "view"], decision = "allow", justification = "Read-only Actions run/log inspection.")
+# Do not use `gh auth status` in Codex. In sandbox/headless execution it can
+# produce misleading keyring diagnostics. Authentication is verified by the
+# guarded preflight via an actual API request.
+prefix_rule(
+    pattern = [["gh", "gh.exe"], "auth", "status"],
+    decision = "forbidden",
+    justification = "Use scripts/agent/github-preflight.ps1 instead of direct gh auth status.",
+)
+
+prefix_rule(
+    pattern = [["gh", "gh.exe"], "repo", "view"],
+    decision = "allow",
+    justification = "Read-only GitHub repository metadata.",
+)
+prefix_rule(
+    pattern = [["gh", "gh.exe"], "pr", "view"],
+    decision = "allow",
+    justification = "Read-only pull request metadata.",
+)
+prefix_rule(
+    pattern = [["gh", "gh.exe"], "pr", "diff"],
+    decision = "allow",
+    justification = "Read-only pull request diff.",
+)
+prefix_rule(
+    pattern = [["gh", "gh.exe"], "pr", "checks"],
+    decision = "allow",
+    justification = "Read-only pull request CI status.",
+)
+prefix_rule(
+    pattern = [["gh", "gh.exe"], "pr", "status"],
+    decision = "allow",
+    justification = "Read-only pull request status.",
+)
+prefix_rule(
+    pattern = [["gh", "gh.exe"], "run", "list"],
+    decision = "allow",
+    justification = "Read-only Actions run listing.",
+)
+prefix_rule(
+    pattern = [["gh", "gh.exe"], "run", "view"],
+    decision = "allow",
+    justification = "Read-only Actions run/log inspection.",
+)
 
 # ---------------------------------------------------------------------------
-# Routine project validation
-# These normally run inside the workspace sandbox.
+# Routine local validation
 # ---------------------------------------------------------------------------
 
-prefix_rule(pattern = ["uv", "run", "pytest"], decision = "allow", justification = "Repository test execution.")
-prefix_rule(pattern = ["uv", "run", "ruff", "check"], decision = "allow", justification = "Repository lint execution.")
+prefix_rule(pattern = ["uv", "run", "pytest"], decision = "allow", justification = "Repository tests.")
+prefix_rule(pattern = ["uv", "run", "ruff", "check"], decision = "allow", justification = "Repository lint.")
 prefix_rule(pattern = ["uv", "run", "ruff", "format", "--check"], decision = "allow", justification = "Formatting check.")
 prefix_rule(pattern = ["uv", "run", "mypy"], decision = "allow", justification = "Static type checking.")
 
 # ---------------------------------------------------------------------------
-# Guarded autonomous workflow wrappers (PowerShell 7)
+# Guarded autonomous wrappers
 # ---------------------------------------------------------------------------
 
 prefix_rule(
-    pattern = ["pwsh", "-NoProfile", "-File", "scripts/agent/start-task.ps1"],
+    pattern = [
+        ["pwsh", "pwsh.exe", "powershell.exe"],
+        "-NoProfile",
+        "-File",
+        [
+            "scripts/agent/github-preflight.ps1",
+            "./scripts/agent/github-preflight.ps1",
+            ".\\scripts\\agent\\github-preflight.ps1",
+            "scripts\\agent\\github-preflight.ps1",
+        ],
+    ],
     decision = "allow",
-    justification = "Creates only clean origin/main-based agent/* task branches and records task identity.",
+    justification = "Host-side GitHub authentication, baseline CI, origin, and branch-protection preflight.",
+    match = [
+        ["pwsh", "-NoProfile", "-File", "scripts/agent/github-preflight.ps1"],
+        ["pwsh.exe", "-NoProfile", "-File", ".\\scripts\\agent\\github-preflight.ps1"],
+    ],
 )
+
 prefix_rule(
-    pattern = ["pwsh", "-NoProfile", "-File", "scripts/agent/commit-task.ps1"],
+    pattern = [
+        ["pwsh", "pwsh.exe", "powershell.exe"],
+        "-NoProfile",
+        "-File",
+        [
+            "scripts/agent/start-task.ps1",
+            "./scripts/agent/start-task.ps1",
+            ".\\scripts\\agent\\start-task.ps1",
+            "scripts\\agent\\start-task.ps1",
+        ],
+    ],
     decision = "allow",
-    justification = "Commits only the recorded agent task with staged-path and message guards.",
+    justification = "Creates only a clean origin/main-based agent/* task branch.",
+    match = [["pwsh", "-NoProfile", "-File", "scripts/agent/start-task.ps1", "-TaskName", "example"]],
 )
+
 prefix_rule(
-    pattern = ["pwsh", "-NoProfile", "-File", "scripts/agent/push-task.ps1"],
+    pattern = [
+        ["pwsh", "pwsh.exe", "powershell.exe"],
+        "-NoProfile",
+        "-File",
+        [
+            "scripts/agent/commit-task.ps1",
+            "./scripts/agent/commit-task.ps1",
+            ".\\scripts\\agent\\commit-task.ps1",
+            "scripts\\agent\\commit-task.ps1",
+        ],
+    ],
     decision = "allow",
-    justification = "Pushes only HEAD to the recorded agent/* branch on origin with no force option.",
+    justification = "Guarded task commit with secret-path and message checks.",
 )
+
 prefix_rule(
-    pattern = ["pwsh", "-NoProfile", "-File", "scripts/agent/create-pr.ps1"],
+    pattern = [
+        ["pwsh", "pwsh.exe", "powershell.exe"],
+        "-NoProfile",
+        "-File",
+        [
+            "scripts/agent/push-task.ps1",
+            "./scripts/agent/push-task.ps1",
+            ".\\scripts\\agent\\push-task.ps1",
+            "scripts\\agent\\push-task.ps1",
+        ],
+    ],
     decision = "allow",
-    justification = "Creates only the recorded task PR with matching remote/local HEAD.",
+    justification = "Pushes only HEAD to the recorded agent/* branch on origin, never force.",
+    match = [["pwsh", "-NoProfile", "-File", "scripts/agent/push-task.ps1"]],
 )
+
 prefix_rule(
-    pattern = ["pwsh", "-NoProfile", "-File", "scripts/agent/wait-ci.ps1"],
+    pattern = [
+        ["pwsh", "pwsh.exe", "powershell.exe"],
+        "-NoProfile",
+        "-File",
+        [
+            "scripts/agent/create-pr.ps1",
+            "./scripts/agent/create-pr.ps1",
+            ".\\scripts\\agent\\create-pr.ps1",
+            "scripts\\agent\\create-pr.ps1",
+        ],
+    ],
     decision = "allow",
-    justification = "Read-only polling of CI checks for the recorded task PR.",
+    justification = "Creates only the recorded task PR with matching local/remote HEAD.",
 )
+
 prefix_rule(
-    pattern = ["pwsh", "-NoProfile", "-File", "scripts/agent/merge-ready.ps1"],
+    pattern = [
+        ["pwsh", "pwsh.exe", "powershell.exe"],
+        "-NoProfile",
+        "-File",
+        [
+            "scripts/agent/wait-ci.ps1",
+            "./scripts/agent/wait-ci.ps1",
+            ".\\scripts\\agent\\wait-ci.ps1",
+            "scripts\\agent\\wait-ci.ps1",
+        ],
+    ],
     decision = "allow",
-    justification = "Read-only final merge readiness gate that records the reviewed exact HEAD.",
+    justification = "Polls required PR checks for the guarded task.",
 )
+
 prefix_rule(
-    pattern = ["pwsh", "-NoProfile", "-File", "scripts/agent/merge-task.ps1"],
+    pattern = [
+        ["pwsh", "pwsh.exe", "powershell.exe"],
+        "-NoProfile",
+        "-File",
+        [
+            "scripts/agent/merge-ready.ps1",
+            "./scripts/agent/merge-ready.ps1",
+            ".\\scripts\\agent\\merge-ready.ps1",
+            "scripts\\agent\\merge-ready.ps1",
+        ],
+    ],
+    decision = "allow",
+    justification = "Read-only exact-HEAD merge-readiness gate.",
+)
+
+prefix_rule(
+    pattern = [
+        ["pwsh", "pwsh.exe", "powershell.exe"],
+        "-NoProfile",
+        "-File",
+        [
+            "scripts/agent/merge-task.ps1",
+            "./scripts/agent/merge-task.ps1",
+            ".\\scripts\\agent\\merge-task.ps1",
+            "scripts\\agent\\merge-task.ps1",
+        ],
+    ],
     decision = "prompt",
-    justification = "Final merge is the human approval boundary and revalidates the exact approved HEAD.",
+    justification = "Final merge is the hard human approval boundary.",
+    match = [
+        [
+            "pwsh",
+            "-NoProfile",
+            "-File",
+            "scripts/agent/merge-task.ps1",
+            "-PrNumber",
+            "1",
+            "-ExpectedHeadSha",
+            "0123456789012345678901234567890123456789",
+        ]
+    ],
 )
 
-# Windows PowerShell equivalents.
-prefix_rule(pattern = ["powershell.exe", "-NoProfile", "-File", "scripts/agent/start-task.ps1"], decision = "allow", justification = "Guarded task startup.")
-prefix_rule(pattern = ["powershell.exe", "-NoProfile", "-File", "scripts/agent/commit-task.ps1"], decision = "allow", justification = "Guarded task commit.")
-prefix_rule(pattern = ["powershell.exe", "-NoProfile", "-File", "scripts/agent/push-task.ps1"], decision = "allow", justification = "Guarded task push.")
-prefix_rule(pattern = ["powershell.exe", "-NoProfile", "-File", "scripts/agent/create-pr.ps1"], decision = "allow", justification = "Guarded task PR creation.")
-prefix_rule(pattern = ["powershell.exe", "-NoProfile", "-File", "scripts/agent/wait-ci.ps1"], decision = "allow", justification = "Read-only CI polling.")
-prefix_rule(pattern = ["powershell.exe", "-NoProfile", "-File", "scripts/agent/merge-ready.ps1"], decision = "allow", justification = "Read-only merge readiness gate.")
-prefix_rule(pattern = ["powershell.exe", "-NoProfile", "-File", "scripts/agent/merge-task.ps1"], decision = "prompt", justification = "Final human-approved merge.")
-
-# One-time repository administration is never autonomous.
+# One-time/admin repository policy.
 prefix_rule(
-    pattern = ["pwsh", "-NoProfile", "-File", "scripts/github/configure-main-protection.ps1"],
+    pattern = [
+        ["pwsh", "pwsh.exe", "powershell.exe"],
+        "-NoProfile",
+        "-File",
+        [
+            "scripts/github/configure-main-protection.ps1",
+            "./scripts/github/configure-main-protection.ps1",
+            ".\\scripts\\github\\configure-main-protection.ps1",
+            "scripts\\github\\configure-main-protection.ps1",
+        ],
+    ],
     decision = "prompt",
-    justification = "Changes server-side repository branch protection and requires explicit owner/admin approval.",
+    justification = "Changes server-side repository/branch policy.",
 )
 prefix_rule(
-    pattern = ["pwsh", "-NoProfile", "-File", "scripts/github/verify-main-protection.ps1"],
+    pattern = [
+        ["pwsh", "pwsh.exe", "powershell.exe"],
+        "-NoProfile",
+        "-File",
+        [
+            "scripts/github/verify-main-protection.ps1",
+            "./scripts/github/verify-main-protection.ps1",
+            ".\\scripts\\github\\verify-main-protection.ps1",
+            "scripts\\github\\verify-main-protection.ps1",
+        ],
+    ],
     decision = "allow",
-    justification = "Read-only branch protection verification.",
+    justification = "Read-only verification of repository and main protection policy.",
 )
 
 # ---------------------------------------------------------------------------
-# Raw mutation paths: forbidden for Codex
+# Raw mutation paths are forbidden to Codex
 # ---------------------------------------------------------------------------
 
-prefix_rule(pattern = ["git", "add"], decision = "forbidden", justification = "Use guarded commit-task.ps1.")
-prefix_rule(pattern = ["git", "commit"], decision = "forbidden", justification = "Use guarded commit-task.ps1.")
-prefix_rule(pattern = ["git", "push"], decision = "forbidden", justification = "Use guarded push-task.ps1.")
-prefix_rule(pattern = ["git", "switch"], decision = "forbidden", justification = "Use guarded start-task.ps1 for autonomous branches.")
-prefix_rule(pattern = ["git", "checkout"], decision = "forbidden", justification = "Raw checkout can switch/discard outside the guarded workflow.")
-prefix_rule(pattern = ["git", "restore"], decision = "forbidden", justification = "Raw restore can discard task/user changes.")
-prefix_rule(pattern = ["git", "merge"], decision = "forbidden", justification = "Raw merge bypasses the final human gate.")
-prefix_rule(pattern = ["git", "rebase"], decision = "forbidden", justification = "Raw rebase rewrites history.")
-prefix_rule(pattern = ["git", "cherry-pick"], decision = "forbidden", justification = "Raw cherry-pick changes history outside the guarded workflow.")
-prefix_rule(pattern = ["git", "reset", "--hard"], decision = "forbidden", justification = "Can irreversibly discard work.")
-prefix_rule(pattern = ["git", "clean", "-fd"], decision = "forbidden", justification = "Can irreversibly delete untracked content.")
-prefix_rule(pattern = ["git", "clean", "-fdx"], decision = "forbidden", justification = "Can irreversibly delete ignored/untracked content.")
-prefix_rule(pattern = ["git", "push", "--force"], decision = "forbidden", justification = "Force push can overwrite remote history.")
-prefix_rule(pattern = ["git", "push", "-f"], decision = "forbidden", justification = "Force push can overwrite remote history.")
+prefix_rule(pattern = [["git", "git.exe"], "add"], decision = "forbidden", justification = "Use guarded commit-task.ps1.")
+prefix_rule(pattern = [["git", "git.exe"], "commit"], decision = "forbidden", justification = "Use guarded commit-task.ps1.")
+prefix_rule(pattern = [["git", "git.exe"], "push"], decision = "forbidden", justification = "Use guarded push-task.ps1.")
+prefix_rule(pattern = [["git", "git.exe"], "switch"], decision = "forbidden", justification = "Use guarded start/merge wrappers.")
+prefix_rule(pattern = [["git", "git.exe"], "checkout"], decision = "forbidden", justification = "Raw checkout can switch/discard outside the guarded workflow.")
+prefix_rule(pattern = [["git", "git.exe"], "restore"], decision = "forbidden", justification = "Raw restore can discard task/user changes.")
+prefix_rule(pattern = [["git", "git.exe"], "merge"], decision = "forbidden", justification = "Raw merge bypasses workflow guards.")
+prefix_rule(pattern = [["git", "git.exe"], "rebase"], decision = "forbidden", justification = "Raw rebase rewrites history.")
+prefix_rule(pattern = [["git", "git.exe"], "cherry-pick"], decision = "forbidden", justification = "Raw cherry-pick changes history outside the workflow.")
+prefix_rule(pattern = [["git", "git.exe"], "reset", "--hard"], decision = "forbidden", justification = "Can irreversibly discard work.")
+prefix_rule(pattern = [["git", "git.exe"], "clean", "-fd"], decision = "forbidden", justification = "Can irreversibly delete untracked content.")
+prefix_rule(pattern = [["git", "git.exe"], "clean", "-fdx"], decision = "forbidden", justification = "Can irreversibly delete ignored/untracked content.")
 
-prefix_rule(pattern = ["gh", "pr", "create"], decision = "forbidden", justification = "Use guarded create-pr.ps1.")
-prefix_rule(pattern = ["gh", "pr", "merge"], decision = "forbidden", justification = "Use human-approved guarded merge-task.ps1.")
-prefix_rule(pattern = ["gh", "pr", "close"], decision = "forbidden", justification = "Closing PRs is a remote mutation outside this autonomous workflow.")
-prefix_rule(pattern = ["gh", "repo", "delete"], decision = "forbidden", justification = "Repository deletion is destructive.")
-prefix_rule(pattern = ["gh", "api"], decision = "forbidden", justification = "Generic API calls can mutate GitHub; use dedicated guarded/admin wrappers.")
+prefix_rule(pattern = [["gh", "gh.exe"], "pr", "create"], decision = "forbidden", justification = "Use guarded create-pr.ps1.")
+prefix_rule(pattern = [["gh", "gh.exe"], "pr", "merge"], decision = "forbidden", justification = "Use human-approved guarded merge-task.ps1.")
+prefix_rule(pattern = [["gh", "gh.exe"], "pr", "close"], decision = "forbidden", justification = "Remote mutation outside the autonomous contract.")
+prefix_rule(pattern = [["gh", "gh.exe"], "repo", "delete"], decision = "forbidden", justification = "Repository deletion is destructive.")
+prefix_rule(pattern = [["gh", "gh.exe"], "api"], decision = "forbidden", justification = "Use dedicated guarded/admin wrappers; generic API calls can mutate GitHub.")
 
-# Dependency mutation remains outside the default autonomous coding path.
-prefix_rule(pattern = ["uv", "add"], decision = "prompt", justification = "Dependency additions change project metadata/lock state.")
-prefix_rule(pattern = ["uv", "remove"], decision = "prompt", justification = "Dependency removal changes project metadata/lock state.")
-prefix_rule(pattern = ["uv", "lock", "--upgrade"], decision = "prompt", justification = "Broad dependency upgrades can change many versions.")
+# Dependency mutation remains an explicit approval boundary.
+prefix_rule(pattern = ["uv", "add"], decision = "prompt", justification = "Changes dependencies and the lockfile.")
+prefix_rule(pattern = ["uv", "remove"], decision = "prompt", justification = "Changes dependencies and the lockfile.")
+prefix_rule(pattern = ["uv", "lock", "--upgrade"], decision = "prompt", justification = "May upgrade many dependencies.")
 prefix_rule(pattern = ["pip", "install"], decision = "prompt", justification = "Mutates the Python environment.")
-
-prefix_rule(
-    pattern = [
-        "pwsh",
-        "-NoProfile",
-        "-File",
-        "scripts/agent/github-preflight.ps1",
-    ],
-    decision = "allow",
-    justification = "Guarded GitHub authentication and repository preflight.",
-)
-
-prefix_rule(
-    pattern = [
-        "pwsh",
-        "-NoProfile",
-        "-File",
-        ".\\scripts\\agent\\github-preflight.ps1",
-    ],
-    decision = "allow",
-    justification = "Windows-relative guarded GitHub preflight.",
-)
