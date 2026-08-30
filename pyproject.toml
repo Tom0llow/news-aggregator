@@ -1,0 +1,227 @@
+# pyproject.toml
+#
+# Python + uv + Ruff + mypy + pytest baseline for Codex-driven development.
+#
+# Before first use:
+#   1. Replace `your-project` with the repository/project name.
+#   2. Ensure the import package is under `src/<package_name>/`.
+#      Example: project `your-project` -> `src/your_project/`.
+#   3. Change `requires-python` / Ruff target-version if the project requires
+#      another Python baseline.
+#
+# Common commands:
+#   uv sync
+#   uv run ruff format .
+#   uv run ruff check .
+#   uv run mypy src tests
+#   uv run pytest
+#   uv run pytest --cov=src --cov-report=term-missing --cov-report=xml
+#
+# Reproducibility is provided by committing `uv.lock`.
+
+[project]
+name = "news-aggregator"
+version = "0.1.0"
+description = ""
+requires-python = ">=3.11"
+dependencies = []
+
+# Add runtime dependencies with:
+#   uv add <package>
+#
+# Example:
+# dependencies = [
+#     "httpx>=0.28",
+# ]
+
+
+# =============================================================================
+# Build system
+# =============================================================================
+#
+# A build system is recommended for a `src/` layout because `uv sync` will
+# install the project itself into the virtual environment.
+#
+# If this repository is intentionally a non-package / flat script project,
+# remove this section and consider:
+#
+# [tool.uv]
+# package = false
+
+[build-system]
+requires = ["uv_build>=0.12,<0.13"]
+build-backend = "uv_build"
+
+
+# =============================================================================
+# Development dependencies
+# =============================================================================
+#
+# PEP 735 dependency groups are supported by uv and are preferred over the
+# legacy `[tool.uv].dev-dependencies` field.
+
+[dependency-groups]
+dev = [
+    "mypy",
+    "pytest>=9.0",
+    "pytest-cov",
+    "ruff",
+]
+
+[tool.uv]
+default-groups = ["dev"]
+
+
+# =============================================================================
+# Ruff
+# =============================================================================
+
+[tool.ruff]
+# Keep this synchronized with the project's minimum supported Python version.
+target-version = "py311"
+
+line-length = 100
+indent-width = 4
+
+# Helps Ruff classify first-party imports for projects using a src layout.
+src = ["src"]
+
+extend-exclude = [
+    ".agents",
+    "docs",
+    "AGENTS.md",
+    "ARCHITECTURE.md",
+    "README.md",
+]
+
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # Pyflakes
+    "I",    # isort
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "SIM",  # flake8-simplify
+    "RUF",  # Ruff-specific rules
+    "PT",   # flake8-pytest-style
+]
+
+# The formatter is the authority for physical line wrapping.
+ignore = [
+    "E501",
+]
+
+# Keep automatic fixes conservative. `ruff check --fix` applies only fixes
+# Ruff marks as safe unless `--unsafe-fixes` is explicitly supplied.
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.lint.per-file-ignores]
+# Package __init__ files often intentionally re-export names.
+"**/__init__.py" = ["F401"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+# Format Python examples embedded in docstrings when Ruff can parse them.
+docstring-code-format = true
+docstring-code-line-length = "dynamic"
+
+
+# =============================================================================
+# mypy
+# =============================================================================
+
+[tool.mypy]
+files = ["src", "tests"]
+
+strict = true
+mypy_path = "src"
+
+# Quality-of-life diagnostics.
+pretty = true
+show_error_codes = true
+show_error_context = true
+warn_unused_configs = true
+
+# Be explicit about packages and avoid silently importing unrelated modules.
+namespace_packages = true
+explicit_package_bases = true
+
+# Cache/output directories are kept out of source directories.
+cache_dir = ".mypy_cache"
+
+# Do not globally silence missing third-party type information.
+# Add narrow module-specific overrides only when a dependency genuinely lacks
+# usable type information.
+ignore_missing_imports = false
+
+# Example for a specific untyped dependency:
+#
+# [[tool.mypy.overrides]]
+# module = ["some_untyped_package.*"]
+# ignore_missing_imports = true
+
+
+# =============================================================================
+# pytest
+# =============================================================================
+#
+# Native TOML configuration is used here, so pytest >= 9.0 is required.
+
+[tool.pytest]
+minversion = "9.0"
+
+testpaths = ["tests"]
+
+addopts = [
+    "-ra",
+    "--strict-config",
+    "--strict-markers",
+]
+
+# Register every custom marker here before using it.
+markers = [
+    "integration: tests that cross process, database, filesystem, or service boundaries",
+    "slow: tests intentionally excluded from fast local feedback loops",
+]
+
+
+# =============================================================================
+# Coverage.py / pytest-cov
+# =============================================================================
+#
+# Coverage is configured here but is NOT enabled for every `pytest` invocation.
+# This keeps focused tests fast and prevents a single-file test run from failing
+# the global coverage threshold.
+#
+# Run coverage explicitly:
+#
+#   uv run pytest \
+#       --cov=src \
+#       --cov-report=term-missing \
+#       --cov-report=xml
+
+[tool.coverage.run]
+branch = true
+source = ["src"]
+relative_files = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+fail_under = 80
+
+# Exclude lines that are intentionally non-executable or type-checking-only.
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
+
+[tool.coverage.xml]
+output = "coverage.xml"

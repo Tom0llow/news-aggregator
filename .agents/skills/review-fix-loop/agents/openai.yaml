@@ -1,0 +1,7 @@
+interface:
+  display_name: "Local Review/Fix"
+  short_description: "Internal bounded implementation and independent review loop"
+  default_prompt: "Follow the review-fix-loop workflow for the user's request."
+
+policy:
+  allow_implicit_invocation: false

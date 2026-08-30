@@ -1,0 +1,7 @@
+interface:
+  display_name: "Create PR"
+  short_description: "Internal guarded PR creation"
+  default_prompt: "Follow the create-pr workflow for the user's request."
+
+policy:
+  allow_implicit_invocation: false

@@ -1,0 +1,7 @@
+interface:
+  display_name: "Code Review"
+  short_description: "Read-only defect-first review of code changes"
+  default_prompt: "Review the requested code change read-only and report actionable findings by severity."
+
+policy:
+  allow_implicit_invocation: true

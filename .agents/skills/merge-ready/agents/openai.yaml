@@ -1,0 +1,7 @@
+interface:
+  display_name: "Merge Ready"
+  short_description: "Read-only final gate before human merge approval"
+  default_prompt: "Follow the merge-ready workflow for the user's request."
+
+policy:
+  allow_implicit_invocation: false

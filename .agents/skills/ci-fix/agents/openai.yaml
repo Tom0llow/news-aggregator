@@ -1,0 +1,7 @@
+interface:
+  display_name: "CI Fix"
+  short_description: "Diagnose, fix, push, and re-run failing CI"
+  default_prompt: "Follow the ci-fix workflow for the user's request."
+
+policy:
+  allow_implicit_invocation: false

@@ -1,0 +1,57 @@
+# .codex/config.toml
+#
+# Project-local Codex configuration for a near-two-touch autonomous workflow:
+#
+#   User request
+#       -> branch
+#       -> implement/review/fix
+#       -> commit/push/PR
+#       -> CI fix loop
+#       -> PR review/fix loop
+#       -> MERGE_READY
+#       -> HUMAN APPROVAL
+#       -> guarded merge
+#
+# Model and reasoning effort are intentionally not pinned here so VS Code's
+# current model/reasoning selection remains useful.
+
+approval_policy = "on-request"
+approvals_reviewer = "user"
+
+sandbox_mode = "workspace-write"
+web_search = "live"
+
+project_doc_max_bytes = 32768
+project_doc_fallback_filenames = []
+
+[sandbox_workspace_write]
+# Shell commands do not get arbitrary network access inside the normal sandbox.
+# Networked operations are exposed through narrowly allowed read commands and
+# guarded wrapper scripts in `.codex/rules/default.rules`.
+network_access = false
+writable_roots = []
+
+[windows]
+sandbox = "unelevated"
+
+[shell_environment_policy]
+inherit = "all"
+ignore_default_excludes = false
+
+[history]
+persistence = "save-all"
+
+[features]
+# Stable/current Codex releases enable multi-agent workflows by default, but
+# pinning this true makes the repository intent explicit.
+multi_agent = true
+
+[agents]
+enabled = true
+
+# Keep concurrency bounded. The workflow intentionally serializes writable
+# agents; most parallelism is read-only analysis/review.
+max_concurrent_threads_per_session = 4
+
+# Do not set default_subagent_model or reasoning effort here.
+# Custom agents inherit the parent selection unless explicitly overridden.

@@ -1,0 +1,72 @@
+# .pre-commit-config.yaml
+#
+# Pre-commit hooks for the Python/Codex development baseline.
+#
+# Design:
+# - Reuse the tools and versions installed by `uv sync`.
+# - Avoid creating a second Ruff/mypy/pytest environment inside pre-commit.
+# - Keep normal commits reasonably fast.
+# - Run the broader test suite at pre-push rather than every commit.
+#
+# Initial setup:
+#   uv sync
+#   uv tool install pre-commit
+#   pre-commit install
+#   pre-commit install --hook-type pre-push
+#
+# Run manually:
+#   pre-commit run --all-files
+#   pre-commit run --hook-stage pre-push --all-files
+
+fail_fast: false
+
+repos:
+  - repo: local
+    hooks:
+      # -----------------------------------------------------------------------
+      # Formatting
+      # -----------------------------------------------------------------------
+      - id: ruff-format-check
+        name: ruff format check
+        entry: uv run ruff format --check .
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+        types_or: [python, pyi]
+
+      # -----------------------------------------------------------------------
+      # Lint
+      # -----------------------------------------------------------------------
+      - id: ruff-check
+        name: ruff lint
+        entry: uv run ruff check .
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+        types_or: [python, pyi]
+
+      # -----------------------------------------------------------------------
+      # Type checking
+      # -----------------------------------------------------------------------
+      - id: mypy
+        name: mypy
+        entry: uv run mypy src tests
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+        types_or: [python, pyi]
+
+      # -----------------------------------------------------------------------
+      # Tests
+      #
+      # Keep the full test suite out of the normal commit loop. Running it at
+      # pre-push gives fast local commits while still catching regressions
+      # before changes leave the machine.
+      # -----------------------------------------------------------------------
+      - id: pytest
+        name: pytest
+        entry: uv run pytest
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+        always_run: true

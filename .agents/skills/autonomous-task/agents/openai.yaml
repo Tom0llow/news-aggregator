@@ -1,0 +1,7 @@
+interface:
+  display_name: "Autonomous Task"
+  short_description: "Run requirement-to-MERGE_READY guarded development"
+  default_prompt: "Follow the autonomous-task workflow for the user's request."
+
+policy:
+  allow_implicit_invocation: true

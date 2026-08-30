@@ -1,0 +1,7 @@
+interface:
+  display_name: "Merge Approved"
+  short_description: "Merge only an explicitly approved MERGE_READY HEAD"
+  default_prompt: "Follow the merge-approved workflow for the user's request."
+
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,7 @@
+interface:
+  display_name: "Fix Bug"
+  short_description: "Reproduce, diagnose, regression-test, and fix a bug"
+  default_prompt: "Diagnose and fix the reported bug, add regression coverage, and validate the fix."
+
+policy:
+  allow_implicit_invocation: true

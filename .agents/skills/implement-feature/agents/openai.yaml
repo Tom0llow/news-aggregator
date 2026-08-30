@@ -1,0 +1,7 @@
+interface:
+  display_name: "Implement Feature"
+  short_description: "Implement a scoped feature with tests and validation"
+  default_prompt: "Implement the requested feature using the repository rules and validate the result."
+
+policy:
+  allow_implicit_invocation: true
