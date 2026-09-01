@@ -152,9 +152,6 @@ class NewsRequestHandler(BaseHTTPRequestHandler):
     def _require_same_origin_json(self) -> None:
         if self.headers.get("Transfer-Encoding"):
             raise ValueError("Transfer-Encoding は使用できません")
-        content_type = self.headers.get_content_type()
-        if content_type != "application/json":
-            raise ValueError("Content-Type は application/json にしてください")
         raw_length = self.headers.get("Content-Length")
         if raw_length is None:
             raise ValueError("Content-Length が必要です")
@@ -164,11 +161,14 @@ class NewsRequestHandler(BaseHTTPRequestHandler):
             raise ValueError("Content-Length が不正です") from exc
         if not 0 <= content_length <= MAX_REQUEST_BODY_BYTES:
             raise ValueError("リクエスト本体が長すぎます")
+        body = self.rfile.read(content_length)
+        content_type = self.headers.get_content_type()
+        if content_type != "application/json":
+            raise ValueError("Content-Type は application/json にしてください")
         origin = self.headers.get("Origin")
         expected_origin = f"http://{self.headers['Host']}"
         if origin != expected_origin:
             raise ValueError("異なるオリジンからの操作は受け付けません")
-        body = self.rfile.read(content_length)
         try:
             payload: object = json.loads(body.decode("utf-8")) if body else {}
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
