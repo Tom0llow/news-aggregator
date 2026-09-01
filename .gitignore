@@ -61,6 +61,13 @@ local_settings.py
 db.sqlite3
 db.sqlite3-journal
 
+# Local news-aggregator data
+/data/
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+
 # Flask stuff:
 instance/
 .webassets-cache

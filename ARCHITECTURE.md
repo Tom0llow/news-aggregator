@@ -2,14 +2,8 @@
 
 ## Status
 
-Bootstrap architecture.
-
-The repository currently contains the development harness and a minimal Python
-package skeleton. Product behavior, external sources, persistence, delivery
-interfaces, and deployment choices are not yet defined in the repository.
-
-Agents must not invent those decisions. Implement them only from explicit
-requirements or an Accepted ADR.
+Implemented local application architecture. The durable choices are recorded in
+`docs/decisions/ADR-001-local-news-aggregation-architecture.md` (Accepted).
 
 ## Runtime and tooling
 
@@ -46,13 +40,49 @@ database drivers, cloud SDKs, or CLI/web frameworks.
 
 ```text
 src/news_aggregator/
+├─ domain/          # article/source models and deterministic validation rules
+├─ application/     # fetch/search orchestration and project-owned ports
+├─ infrastructure/  # fixed source catalog, RSS/HTTP, SQLite, scheduler
+├─ interfaces/      # local HTTP API, CLI boundary, and browser assets
 ├─ __init__.py
-└─ main.py
+└─ main.py          # composition root and CLI
 ```
 
-Do not create every possible layer/directory in advance.
+`main.py` is the only composition root. Importing modules does not start the
+server, scheduler, network access, or database initialization.
 
-Add a layer or port when real behavior requires it.
+## Runtime topology
+
+One process owns an IPv4-loopback `ThreadingHTTPServer`, a fixed-interval
+scheduler thread, short-lived SQLite connections in WAL mode, and one fetch-cycle
+lock. The scheduler starts a background fetch after server startup and repeats
+every 30 minutes. Feed exceptions are isolated. ASCII.jp's 60-minute interval is
+enforced from its last successful attempt. Shutdown closes the server and joins
+the scheduler thread.
+
+## Persistence and time
+
+SQLite schema changes use `PRAGMA user_version`. Articles have no expiry. A
+database unique constraint protects `duplicate_key`, while the original URL is
+retained for display. Feed attempts, successes, skips, and errors are stored
+separately. Capacity is the sum of existing DB, WAL, SHM, and journal files.
+
+Aware timestamps are stored in UTC. Search converts Japanese calendar-day bounds
+to UTC; browser rendering uses `Asia/Tokyo`. A null timestamp is unknown. Yahoo!
+RSS `pubDate` has the semantic type `portal_provided` and is never presented as
+the original publisher's publication time.
+
+## Local HTTP boundary
+
+The server validates both the bind address and `Host` as IPv4 loopback. Fixed
+static routes and same-origin JSON endpoints expose article search, source state,
+storage usage, and manual fetching. There is no arbitrary URL fetch endpoint,
+CORS opt-in, authentication, or server-side user profile.
+
+The browser creates dynamic values with `textContent`. HTTP(S) article links open
+with `noopener noreferrer`; content security policy forbids remote scripts,
+styles, images, objects, and frames. Saved keywords and favorites use only
+versioned browser `localStorage` keys.
 
 ## Expected responsibilities
 
