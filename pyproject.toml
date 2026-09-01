@@ -22,9 +22,12 @@
 [project]
 name = "news-aggregator"
 version = "0.1.0"
-description = ""
+description = "Personal local-only Japanese news aggregation web application"
 requires-python = ">=3.11"
 dependencies = []
+
+[project.scripts]
+news-aggregator = "news_aggregator.main:main"
 
 # Add runtime dependencies with:
 #   uv add <package>

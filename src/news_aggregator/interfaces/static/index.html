@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ニュース集計</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="/static/app.js" defer></script>
+  </head>
+  <body>
+    <header class="site-header">
+      <div>
+        <p class="eyebrow">PRIVATE LOCAL READER</p>
+        <h1>ニュース集計</h1>
+        <p>日本語ニュースの見出しを、手元で静かに読み比べる。</p>
+      </div>
+      <button id="fetch-button" class="primary" type="button">今すぐ取得</button>
+    </header>
+
+    <main>
+      <section class="panel search-panel" aria-labelledby="search-heading">
+        <h2 id="search-heading">記事を探す</h2>
+        <form id="search-form">
+          <label class="keyword-field">
+            <span>キーワード（空白区切りでAND）</span>
+            <input id="query" name="q" type="search" maxlength="500" autocomplete="off">
+          </label>
+          <label>
+            <span>開始日</span>
+            <input id="date-from" name="date_from" type="date">
+          </label>
+          <label>
+            <span>終了日</span>
+            <input id="date-to" name="date_to" type="date">
+          </label>
+          <label>
+            <span>ソース</span>
+            <select id="source" name="source">
+              <option value="">すべて</option>
+            </select>
+          </label>
+          <div class="form-actions">
+            <button class="primary" type="submit">検索</button>
+            <button id="save-keyword" type="button">キーワードを保存</button>
+          </div>
+        </form>
+        <div id="saved-keywords" class="chips" aria-label="保存キーワード"></div>
+      </section>
+
+      <section class="dashboard" aria-label="運用状態">
+        <article class="panel metric">
+          <span>保存容量</span>
+          <strong id="storage-size">確認中</strong>
+          <small>DB・WAL・SHM・journal の合計</small>
+        </article>
+        <article class="panel metric">
+          <span>検索結果</span>
+          <strong id="result-count">—</strong>
+          <small id="fetch-message" role="status">読み込み中</small>
+        </article>
+      </section>
+
+      <section class="content-grid">
+        <div>
+          <div class="section-heading">
+            <h2>記事</h2>
+            <label class="favorite-filter">
+              <input id="favorites-only" type="checkbox">
+              お気に入りのみ
+            </label>
+          </div>
+          <div id="articles" class="article-list" aria-live="polite"></div>
+          <nav id="pagination" class="pagination" aria-label="検索結果ページ"></nav>
+        </div>
+
+        <aside>
+          <div class="section-heading"><h2>ソース状態</h2></div>
+          <div id="source-states" class="source-list"></div>
+        </aside>
+      </section>
+    </main>
+  </body>
+</html>
