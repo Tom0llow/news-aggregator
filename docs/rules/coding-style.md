@@ -245,6 +245,10 @@ def append_item(item: str, items: list[str] | None = None):
 
 Comments should explain **why**, not restate **what** the code does.
 
+Every Python script must include a module docstring at the top of the file.
+Place it immediately after any shebang and encoding declaration, and before
+imports or executable statements.
+
 Add docstrings for:
 
 - public APIs,
