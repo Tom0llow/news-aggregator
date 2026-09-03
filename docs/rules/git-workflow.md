@@ -150,6 +150,13 @@ PR body:
 ## Risks / Notes
 ```
 
+The `## Summary` section must include all of the following:
+
+- a directory tree containing every changed file and only the parent directories
+  needed to locate those files
+- the purpose and motivation of each commit, identified by its short SHA or subject
+- a per-file description of the changes for every changed file
+
 ## 10. CI
 
 Required checks are:
