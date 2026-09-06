@@ -6,6 +6,7 @@
 - Related Issues/PRs: N/A
 - Supersedes: N/A
 - Superseded by: N/A
+- Related Decisions: ADR-002（ローカル閲覧数で永続化項目とPOST境界を補足）
 
 ## Context
 
@@ -155,3 +156,4 @@ rollback時はprocessを停止してDBをbackupし、互換schemaを読むversio
 | Date | Status | Notes |
 | --- | --- | --- |
 | 2026-08-31 | Accepted | Initial local application architecture |
+| 2026-09-06 | Accepted | ADR-002によるローカル閲覧数の補足を参照 |

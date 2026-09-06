@@ -42,16 +42,34 @@ uv run news-aggregator fetch --db data\news.db
 
 - SQLite DBの既定保存先は `data/news.db` です。
 - タイトル、プレーンテキストの概要、元記事URL、ソース、発行元、日時、カテゴリ、タグ、
-  重複キー、取得状態だけを保存します。本文・画像・enclosureは保存しません。
+  重複キー、取得状態に加え、このアプリから記事リンクを開いた累計回数を保存します。
+  本文・画像・enclosureは保存しません。
 - 記事は自動削除しません。同じ保守的な正規化URLはDBの一意制約で重複登録しません。
 - DB本体、WAL、SHM、journalの合計容量は画面上で確認できます。
 - 検索対象はタイトル・概要・カテゴリ・タグです。空白区切りはAND、各語は部分一致です。
+- 記事カード下部のカテゴリボタンで完全一致のカテゴリ一覧へ絞り込み、最新順または
+  閲覧数順に切り替えられます。同じ閲覧数の記事は最新順で安定して表示します。
+- 「閲覧数」は配信元の数値ではなく、このローカルアプリから記事リンクを開いた累計回数です。
+  新規・既存記事は0回から始まり、計数に失敗しても外部記事を開く動作は妨げません。
 - 日付検索は日本時間の一日を境界に使います。日時不明の記事は、日付指定なしの検索には
   含まれ、画面では「日付不明」と表示します。
 - お気に入りと保存キーワードは版付きのブラウザ `localStorage` だけに保存します。
   サーバーDBにはユーザー情報を持ちません。ブラウザのサイトデータを消すと失われます。
 
+ローカル閲覧数は記事単位の集計値だけをSQLiteへ保存し、閲覧日時、個人識別子、参照元は
+記録しません。ただし記事ごとの関心を推測できるデータなので、DBとバックアップは他の保存記事と
+同様に利用者自身で保護してください。
+
 長期保存データを保全する場合は、アプリを停止してから `news.db` をバックアップしてください。
+
+## ローカルJSON API
+
+`GET /api/articles` は既存の検索parameterに加えて、`category` の完全一致絞り込みと
+`sort=latest|views` を受け付けます。`sort` 省略時は `latest` です。
+
+`POST /api/articles/{id}/views` は記事リンク選択時のローカル閲覧数を1加算します。他の更新APIと
+同様に、同一originから `Content-Type: application/json` で空オブジェクト `{}` を送る必要があり、
+存在しない記事IDには404を返します。
 
 ## ニュースソースと利用条件
 
@@ -81,4 +99,5 @@ uv run pytest --cov=src --cov-report=term-missing --cov-report=xml
 ```
 
 設計判断は `ARCHITECTURE.md` と
-`docs/decisions/ADR-001-local-news-aggregation-architecture.md` を参照してください。
+`docs/decisions/ADR-001-local-news-aggregation-architecture.md`、
+`docs/decisions/ADR-002-local-article-view-counts.md` を参照してください。

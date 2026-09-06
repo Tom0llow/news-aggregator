@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import logging
 import threading
 from datetime import UTC, datetime
 from email.message import Message
@@ -120,15 +121,31 @@ def test_static_assets_are_local_safe_and_have_content_headers(tmp_path: Path) -
     assert "default-src 'self'" in headers["Content-Security-Policy"]
     assert "ニュース集計".encode() in html
     assert "DB・WAL・SHM・journal".encode() in html
+    assert b'id="article-sort"' in html
+    assert b'id="category-selection"' in html
+    assert b'id="clear-category"' in html
     assert b"localStorage" in javascript
     assert b"newsAggregator:v1:favorites" in javascript
     assert b"innerHTML" not in javascript
     assert b"setInterval(refreshView, REFRESH_INTERVAL_MS)" in javascript
     assert b'addEventListener("visibilitychange"' in javascript
     assert b"loadSources(), loadStorage()" in javascript
-    assert b"search: { query:" in javascript
+    assert b'category: "", sort: "latest"' in javascript
     assert b"q: state.search.query" in javascript
+    assert b"category: state.search.category" in javascript
+    assert b"sort: state.search.sort" in javascript
     assert b"commitSearchParameters();" in javascript
+    assert b'element("button", `category-button' in javascript
+    assert b"article.tags.filter(Boolean)" in javascript
+    assert b'element("span", "tag", value)' in javascript
+    assert b"void recordArticleView(article, details, timeKind)" in javascript
+    assert b"`/api/articles/${article.id}/views`" in javascript
+    assert (
+        b"article.view_count = Math.max(Number.isSafeInteger(article.view_count) ? "
+        b"article.view_count : 0, payload.view_count)" in javascript
+    )
+    assert b"Counting is best-effort" in javascript
+    assert javascript.count(b"state.page = 1") >= 4
     assert javascript.count(b"requestGeneration !== articleRequestGeneration") == 2
 
 
@@ -152,11 +169,136 @@ def test_article_source_and_storage_json_endpoints(tmp_path: Path) -> None:
     assert articles["total"] == 1
     assert articles["articles"][0]["timestamp_kind"] == "portal_provided"
     assert articles["articles"][0]["published_at"] is None
+    assert articles["articles"][0]["view_count"] == 0
     assert len(sources) == 6
     ledge = next(source for source in sources if source["id"] == "ledge_ai")
     assert ledge["status"] == "disabled"
     assert ledge["disabled_reason"] == "利用許可未確認のため取得しません"
     assert storage["total_bytes"] > 0
+
+
+def test_article_category_filter_and_sort_are_backward_compatible(tmp_path: Path) -> None:
+    server, thread, _ = _start_server(tmp_path)
+    try:
+        default_status, _, default_body = _request(server, "/api/articles")
+        category_status, _, category_body = _request(server, "/api/articles?category=IT&sort=views")
+        exact_status, _, exact_body = _request(server, "/api/articles?category=it")
+    finally:
+        _stop_server(server, thread)
+
+    assert default_status == category_status == exact_status == 200
+    assert json.loads(default_body)["total"] == 1
+    assert json.loads(category_body)["total"] == 1
+    assert json.loads(exact_body)["total"] == 0
+
+
+def test_article_view_post_increments_and_missing_id_returns_404(tmp_path: Path) -> None:
+    server, thread, _ = _start_server(tmp_path)
+    origin = _base_url(server)
+    headers = {"Content-Type": "application/json", "Origin": origin}
+    try:
+        _, _, initial_body = _request(server, "/api/articles")
+        article_id = json.loads(initial_body)["articles"][0]["id"]
+        first_status, _, first_body = _request(
+            server,
+            f"/api/articles/{article_id}/views",
+            method="POST",
+            body=b"{}",
+            headers=headers,
+        )
+        second_status, _, second_body = _request(
+            server,
+            f"/api/articles/{article_id}/views",
+            method="POST",
+            body=b"{}",
+            headers=headers,
+        )
+        missing_status, _, missing_body = _request(
+            server,
+            "/api/articles/999999/views",
+            method="POST",
+            body=b"{}",
+            headers=headers,
+        )
+        _, _, updated_body = _request(server, "/api/articles")
+    finally:
+        _stop_server(server, thread)
+
+    assert first_status == second_status == 200
+    assert json.loads(first_body)["view_count"] == 1
+    assert json.loads(second_body)["view_count"] == 2
+    assert missing_status == 404
+    assert "記事" in json.loads(missing_body)["error"]
+    assert json.loads(updated_body)["articles"][0]["view_count"] == 2
+
+
+def test_article_view_post_rejects_cross_origin_without_incrementing(tmp_path: Path) -> None:
+    server, thread, _ = _start_server(tmp_path)
+    try:
+        _, _, initial_body = _request(server, "/api/articles")
+        article_id = json.loads(initial_body)["articles"][0]["id"]
+        status, _, body = _request(
+            server,
+            f"/api/articles/{article_id}/views",
+            method="POST",
+            body=b"{}",
+            headers={"Content-Type": "application/json", "Origin": "http://evil.example"},
+        )
+        _, _, unchanged_body = _request(server, "/api/articles")
+    finally:
+        _stop_server(server, thread)
+
+    assert status == 400
+    assert "オリジン" in json.loads(body)["error"]
+    assert json.loads(unchanged_body)["articles"][0]["view_count"] == 0
+
+
+def test_article_view_posts_do_not_emit_identifying_access_logs(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    server, thread, _ = _start_server(tmp_path)
+    origin = _base_url(server)
+    headers = {"Content-Type": "application/json", "Origin": origin}
+    invalid_id = "private-id-abc"
+    missing_id = "8765432109"
+    try:
+        _, _, initial_body = _request(server, "/api/articles")
+        article_id = json.loads(initial_body)["articles"][0]["id"]
+        caplog.clear()
+        with caplog.at_level(logging.INFO, logger="news_aggregator.interfaces.web"):
+            control_status, _, _ = _request(server, "/api/storage")
+            success_status, _, _ = _request(
+                server,
+                f"/api/articles/{article_id}/views",
+                method="POST",
+                body=b"{}",
+                headers=headers,
+            )
+            invalid_status, _, _ = _request(
+                server,
+                f"/api/articles/{invalid_id}/views",
+                method="POST",
+                body=b"{}",
+                headers=headers,
+            )
+            missing_status, _, _ = _request(
+                server,
+                f"/api/articles/{missing_id}/views",
+                method="POST",
+                body=b"{}",
+                headers=headers,
+            )
+    finally:
+        _stop_server(server, thread)
+
+    log_messages = "\n".join(record.getMessage() for record in caplog.records)
+    assert control_status == success_status == 200
+    assert invalid_status == 400
+    assert missing_status == 404
+    assert '"GET /api/storage HTTP/1.1" 200' in log_messages
+    assert f"/api/articles/{article_id}/views" not in log_messages
+    assert invalid_id not in log_messages
+    assert missing_id not in log_messages
 
 
 def test_manual_fetch_is_json_only_and_runs_all_enabled_feeds(tmp_path: Path) -> None:
@@ -224,6 +366,13 @@ def test_manual_fetch_requires_exact_same_origin(tmp_path: Path, origin: str | N
         "/api/articles?limit=101",
         "/api/articles?page=1000001",
         "/api/articles?source=unknown",
+        "/api/articles?sort=popular",
+        "/api/articles?sort=",
+        "/api/articles?sort=latest&sort=views",
+        "/api/articles?category=",
+        "/api/articles?category=%20",
+        "/api/articles?category=" + "a" * 101,
+        "/api/articles?category=IT&category=AI",
     ],
 )
 def test_invalid_article_queries_return_400(tmp_path: Path, path: str) -> None:
@@ -235,6 +384,24 @@ def test_invalid_article_queries_return_400(tmp_path: Path, path: str) -> None:
 
     assert status == 400
     assert "error" in json.loads(body)
+
+
+@pytest.mark.parametrize("article_id", ["0", "-1", "abc", "9223372036854775808"])
+def test_invalid_article_view_ids_return_400(tmp_path: Path, article_id: str) -> None:
+    server, thread, _ = _start_server(tmp_path)
+    try:
+        status, _, body = _request(
+            server,
+            f"/api/articles/{article_id}/views",
+            method="POST",
+            body=b"{}",
+            headers={"Content-Type": "application/json", "Origin": _base_url(server)},
+        )
+    finally:
+        _stop_server(server, thread)
+
+    assert status == 400
+    assert "記事ID" in json.loads(body)["error"]
 
 
 def test_unknown_route_and_host_header_are_rejected(tmp_path: Path) -> None:

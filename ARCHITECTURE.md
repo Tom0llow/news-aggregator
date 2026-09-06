@@ -3,7 +3,8 @@
 ## Status
 
 Implemented local application architecture. The durable choices are recorded in
-`docs/decisions/ADR-001-local-news-aggregation-architecture.md` (Accepted).
+`docs/decisions/ADR-001-local-news-aggregation-architecture.md` and
+`docs/decisions/ADR-002-local-article-view-counts.md` (Accepted).
 
 ## Runtime and tooling
 
@@ -62,10 +63,13 @@ the scheduler thread.
 
 ## Persistence and time
 
-SQLite schema changes use `PRAGMA user_version`. Articles have no expiry. A
-database unique constraint protects `duplicate_key`, while the original URL is
-retained for display. Feed attempts, successes, skips, and errors are stored
-separately. Capacity is the sum of existing DB, WAL, SHM, and journal files.
+SQLite schema changes use `PRAGMA user_version`; schema v2 adds an aggregate
+local `view_count` to articles while preserving v1 rows with a zero default.
+Articles have no expiry. A database unique constraint protects `duplicate_key`,
+while the original URL is retained for display. Category/latest and
+category/view-count indexes support deterministic lists. Feed attempts,
+successes, skips, and errors are stored separately. Capacity is the sum of
+existing DB, WAL, SHM, and journal files.
 
 Aware timestamps are stored in UTC. Search converts Japanese calendar-day bounds
 to UTC; browser rendering uses `Asia/Tokyo`. A null timestamp is unknown. Yahoo!
@@ -76,13 +80,17 @@ the original publisher's publication time.
 
 The server validates both the bind address and `Host` as IPv4 loopback. Fixed
 static routes and same-origin JSON endpoints expose article search, source state,
-storage usage, and manual fetching. There is no arbitrary URL fetch endpoint,
-CORS opt-in, authentication, or server-side user profile.
+storage usage, manual fetching, and an atomic article view-count increment. The
+increment endpoint accepts only an empty JSON object and records a local article
+link activation, not a publisher-provided view. There is no arbitrary URL fetch
+endpoint, CORS opt-in, authentication, or server-side user profile.
 
 The browser creates dynamic values with `textContent`. HTTP(S) article links open
-with `noopener noreferrer`; content security policy forbids remote scripts,
-styles, images, objects, and frames. Saved keywords and favorites use only
-versioned browser `localStorage` keys.
+with `noopener noreferrer`; their activation sends a best-effort same-origin
+count request without delaying or blocking navigation. Content security policy
+forbids remote scripts, styles, images, objects, and frames. Saved keywords and
+favorites use only versioned browser `localStorage` keys. Aggregate view counts
+remain in SQLite and do not include identities or timestamps.
 
 ## Expected responsibilities
 

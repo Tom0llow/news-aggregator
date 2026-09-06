@@ -13,6 +13,7 @@ from news_aggregator.domain.models import (
     ArticleCandidate,
     ArticlePage,
     ArticleSearch,
+    ArticleSort,
     FeedStatus,
     SourceKind,
     StorageUsage,
@@ -20,7 +21,7 @@ from news_aggregator.domain.models import (
 )
 from news_aggregator.domain.rules import ensure_aware_utc
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def _jst_timezone() -> tzinfo:
@@ -70,6 +71,17 @@ CREATE TABLE IF NOT EXISTS feed_status (
 CREATE INDEX IF NOT EXISTS idx_feed_status_source ON feed_status(source_id);
 """
 
+_SCHEMA_V2 = """
+BEGIN IMMEDIATE;
+ALTER TABLE articles ADD COLUMN view_count INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX idx_articles_category_latest
+    ON articles(category, (published_at IS NULL), published_at DESC, id DESC);
+CREATE INDEX idx_articles_category_views
+    ON articles(category, view_count DESC, (published_at IS NULL), published_at DESC, id DESC);
+PRAGMA user_version = 2;
+COMMIT;
+"""
+
 
 class UnsupportedSchemaError(Exception):
     """The database was created by a newer incompatible application."""
@@ -96,6 +108,9 @@ class SqliteArticleRepository(ArticleRepository):
                 if version < 1:
                     connection.executescript(_SCHEMA_V1)
                     connection.execute("PRAGMA user_version = 1")
+                    version = 1
+                if version < 2:
+                    connection.executescript(_SCHEMA_V2)
                 connection.commit()
 
     def save_articles(self, articles: tuple[ArticleCandidate, ...]) -> int:
@@ -159,6 +174,9 @@ class SqliteArticleRepository(ArticleRepository):
         if search.source_id:
             clauses.append("source_id = ?")
             parameters.append(search.source_id)
+        if search.category is not None:
+            clauses.append("category = ?")
+            parameters.append(search.category)
         if search.date_from:
             clauses.append("published_at >= ?")
             parameters.append(_jst_day_start_utc(search.date_from).replace("+00:00", "Z"))
@@ -167,6 +185,11 @@ class SqliteArticleRepository(ArticleRepository):
             next_day = search.date_to + timedelta(days=1)
             parameters.append(_jst_day_start_utc(next_day).replace("+00:00", "Z"))
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        order_by = (
+            "view_count DESC, published_at IS NULL, published_at DESC, id DESC"
+            if search.sort is ArticleSort.VIEWS
+            else "published_at IS NULL, published_at DESC, id DESC"
+        )
         with self._connect() as connection:
             count_row = connection.execute(
                 f"SELECT COUNT(*) FROM articles{where}", parameters
@@ -176,9 +199,9 @@ class SqliteArticleRepository(ArticleRepository):
                 f"""
                 SELECT id, title, summary, url, duplicate_key, source_id, source_name,
                        publisher, source_kind, published_at, timestamp_kind, fetched_at,
-                       category, tags_json, fetch_error
+                       category, tags_json, fetch_error, view_count
                 FROM articles{where}
-                ORDER BY published_at IS NULL, published_at DESC, id DESC
+                ORDER BY {order_by}
                 LIMIT ? OFFSET ?
                 """,
                 (*parameters, search.limit, (search.page - 1) * search.limit),
@@ -189,6 +212,23 @@ class SqliteArticleRepository(ArticleRepository):
             page=search.page,
             limit=search.limit,
         )
+
+    def increment_article_view(self, article_id: int) -> int | None:
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "UPDATE articles SET view_count = view_count + 1 WHERE id = ?",
+                (article_id,),
+            )
+            if cursor.rowcount == 0:
+                connection.commit()
+                return None
+            row = connection.execute(
+                "SELECT view_count FROM articles WHERE id = ?", (article_id,)
+            ).fetchone()
+            connection.commit()
+        if row is None:
+            raise RuntimeError("incremented article disappeared before it could be read")
+        return int(row["view_count"])
 
     def feed_status(self, feed_id: str) -> FeedStatus | None:
         with self._connect() as connection:
@@ -339,6 +379,7 @@ def _row_to_article(row: sqlite3.Row) -> Article:
         category=_optional_str(row["category"]),
         tags=_decode_tags(row["tags_json"]),
         fetch_error=_optional_str(row["fetch_error"]),
+        view_count=int(row["view_count"]),
     )
 
 

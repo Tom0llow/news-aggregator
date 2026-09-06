@@ -39,7 +39,14 @@ input, select { width: 100%; min-height: 2.6rem; border: 1px solid var(--line); 
 .metric span, .metric small { color: var(--muted); }
 .metric strong { font: 500 1.6rem/1.2 Georgia, serif; }
 .content-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(18rem, 1fr); gap: 1.5rem; align-items: start; }
-.section-heading { display: flex; justify-content: space-between; align-items: center; min-height: 2.5rem; }
+.section-heading { display: flex; justify-content: space-between; align-items: center; gap: 1rem; min-height: 2.5rem; }
+.article-controls { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: .65rem; }
+.category-selection { display: flex; align-items: center; gap: .45rem; color: var(--muted); font-size: .78rem; }
+.category-selection[hidden] { display: none; }
+.category-selection strong { color: var(--accent-dark); }
+.category-selection button { padding: .3rem .5rem; }
+.sort-filter { display: flex; grid-template-columns: auto auto; align-items: center; gap: .4rem; }
+.sort-filter select { min-height: 2.1rem; padding: .3rem .5rem; }
 .favorite-filter { display: flex; grid-template-columns: auto 1fr; align-items: center; }
 .favorite-filter input { min-height: auto; width: auto; }
 .article-list, .source-list { display: grid; gap: .8rem; }
@@ -52,6 +59,8 @@ input, select { width: 100%; min-height: 2.6rem; border: 1px solid var(--line); 
 .article-footer { display: flex; justify-content: space-between; gap: .8rem; align-items: center; }
 .tag-list { display: flex; flex-wrap: wrap; gap: .3rem; }
 .tag { padding: .18rem .4rem; border-radius: .25rem; background: #e8eee9; color: #315345; font-size: .7rem; }
+.category-button { padding: .18rem .45rem; border-color: #9bb9ad; border-radius: 999px; background: #edf6f2; color: var(--accent-dark); font-size: .7rem; }
+.category-button.active { border-color: var(--accent); background: var(--accent); color: white; }
 .favorite-button { min-width: 3rem; padding: .35rem .55rem; }
 .favorite-button.active { border-color: #c5901e; color: #8a6005; background: #fff4d1; }
 .source-card h3 { margin: 0 0 .5rem; font-size: .96rem; }
@@ -74,4 +83,6 @@ input, select { width: 100%; min-height: 2.6rem; border: 1px solid var(--line); 
   main { width: min(100% - 1.2rem, 1240px); }
   form, .dashboard { grid-template-columns: 1fr; }
   .keyword-field { grid-column: auto; }
+  .section-heading { align-items: start; flex-direction: column; }
+  .article-controls { justify-content: flex-start; }
 }
