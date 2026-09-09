@@ -219,6 +219,26 @@ def test_category_filter_and_view_sort_use_stable_latest_tiebreakers(tmp_path: P
     assert [article.view_count for article in by_views.articles] == [2, 1, 1, 1]
 
 
+def test_article_categories_are_distinct_non_empty_and_sorted(tmp_path: Path) -> None:
+    repository = _repository(tmp_path / "news.db")
+    assert repository.article_categories() == ()
+
+    repository.save_articles(
+        (
+            _article("https://example.jp/technology", category="技術"),
+            _article("https://example.jp/ai", category="AI"),
+            _article("https://example.jp/missing", category=None),
+            _article("https://example.jp/empty", category=""),
+            _article("https://example.jp/spaces", category="   "),
+            _article("https://example.jp/tab", category="\t"),
+            _article("https://example.jp/technology-duplicate", category="技術"),
+            _article("https://example.jp/it", category="IT"),
+        )
+    )
+
+    assert repository.article_categories() == ("AI", "IT", "技術")
+
+
 def test_view_increment_is_atomic_and_missing_article_is_reported(tmp_path: Path) -> None:
     repository = _repository(tmp_path / "news.db")
     repository.save_articles((_article("https://example.jp/article"),))

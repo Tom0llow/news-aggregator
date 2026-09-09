@@ -213,6 +213,19 @@ class SqliteArticleRepository(ArticleRepository):
             limit=search.limit,
         )
 
+    def article_categories(self) -> tuple[str, ...]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT DISTINCT category
+                FROM articles
+                WHERE category IS NOT NULL
+                ORDER BY category ASC
+                """
+            ).fetchall()
+        categories = (str(row["category"]) for row in rows)
+        return tuple(category for category in categories if category.strip())
+
     def increment_article_view(self, article_id: int) -> int | None:
         with self._connect() as connection:
             cursor = connection.execute(

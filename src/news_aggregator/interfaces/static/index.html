@@ -39,6 +39,12 @@
               <option value="">すべて</option>
             </select>
           </label>
+          <label>
+            <span>カテゴリ</span>
+            <select id="category" name="category">
+              <option value="">すべて</option>
+            </select>
+          </label>
           <div class="form-actions">
             <button class="primary" type="submit">検索</button>
             <button id="save-keyword" type="button">キーワードを保存</button>
@@ -65,10 +71,6 @@
           <div class="section-heading">
             <h2>記事</h2>
             <div class="article-controls">
-              <div id="category-selection" class="category-selection" hidden>
-                <span>選択中カテゴリ: <strong id="selected-category"></strong></span>
-                <button id="clear-category" type="button">解除</button>
-              </div>
               <label class="sort-filter">
                 <span>並び順</span>
                 <select id="article-sort">

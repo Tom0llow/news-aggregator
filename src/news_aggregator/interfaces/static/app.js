@@ -76,7 +76,7 @@ function commitSearchParameters() {
     dateFrom: byId("date-from").value,
     dateTo: byId("date-to").value,
     source: byId("source").value,
-    category: state.search.category,
+    category: byId("category").value,
     sort: byId("article-sort").value,
   };
 }
@@ -170,17 +170,11 @@ async function recordArticleView(article, details, timeKind) {
 }
 
 function selectCategory(category) {
+  ensureCategoryOption(category);
+  byId("category").value = category;
   state.search.category = category;
   state.page = 1;
-  renderCategorySelection();
   loadArticles();
-}
-
-function renderCategorySelection() {
-  const selection = byId("category-selection");
-  const selected = Boolean(state.search.category);
-  selection.hidden = !selected;
-  byId("selected-category").textContent = selected ? state.search.category : "";
 }
 
 function toggleFavorite(url) {
@@ -256,6 +250,30 @@ async function loadSources() {
   }
 }
 
+function ensureCategoryOption(category) {
+  const select = byId("category");
+  if (!category || Array.from(select.options).some((option) => option.value === category)) return;
+  const option = element("option", "", category);
+  option.value = category;
+  select.append(option);
+}
+
+async function loadCategories() {
+  const payload = await requestJson("/api/categories");
+  const select = byId("category");
+  const selectedCategory = select.value;
+  const allCategories = element("option", "", "すべて");
+  allCategories.value = "";
+  select.replaceChildren(allCategories);
+  for (const category of payload.categories) {
+    const option = element("option", "", category);
+    option.value = category;
+    select.append(option);
+  }
+  ensureCategoryOption(selectedCategory);
+  select.value = selectedCategory;
+}
+
 function statusLabel(status) {
   return ({ success: "正常", error: "エラー", skipped: "間隔調整", disabled: "無効", never: "未取得" })[status] || status;
 }
@@ -267,7 +285,7 @@ async function loadStorage() {
 
 function refreshView() {
   if (refreshPromise) return refreshPromise;
-  refreshPromise = Promise.all([loadArticles(), loadSources(), loadStorage()])
+  refreshPromise = Promise.all([loadArticles(), loadSources(), loadCategories(), loadStorage()])
     .catch((error) => {
       byId("fetch-message").textContent = error.message;
     })
@@ -295,12 +313,6 @@ byId("article-sort").addEventListener("change", () => {
   state.page = 1;
   loadArticles();
 });
-byId("clear-category").addEventListener("click", () => {
-  state.search.category = "";
-  state.page = 1;
-  renderCategorySelection();
-  loadArticles();
-});
 byId("fetch-button").addEventListener("click", async () => {
   const button = byId("fetch-button");
   button.disabled = true;
@@ -319,7 +331,6 @@ byId("fetch-button").addEventListener("click", async () => {
 });
 
 renderSavedKeywords();
-renderCategorySelection();
 refreshView();
 setInterval(refreshView, REFRESH_INTERVAL_MS);
 document.addEventListener("visibilitychange", () => {

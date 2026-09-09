@@ -73,13 +73,15 @@ RSSに存在せず、追加scraping/APIはADR-001の固定feed境界と利用条
 
 ## Implementation Notes
 
-domainの検索条件がカテゴリと並び順を表し、application portが加算操作を公開する。SQLとmigrationは
-infrastructure、query/POST検証とJSON変換はinterfacesに置く。新しい外部依存は導入しない。
+domainの検索条件がカテゴリと並び順を表し、application portが加算操作と保存済みカテゴリの
+read-only discoveryを公開する。SQLとmigrationはinfrastructure、query/POST検証とJSON変換は
+interfacesに置く。カテゴリ候補は全保存記事の非NULL・非空値から取得し、新しい外部依存は導入しない。
 
 ## Validation
 
-schema v1から既存行を保つmigration、既定値とindex、カテゴリ完全一致、両方の安定順序、並行加算、
-存在しない記事、query境界、同一origin空JSON POST、JSON契約、UIの非阻害呼び出しを自動テストする。
+schema v1から既存行を保つmigration、既定値とindex、カテゴリ完全一致、両方の安定順序、カテゴリ候補の
+重複・空値除外・決定的順序・空DB、並行加算、存在しない記事、query境界、同一origin空JSON POST、
+JSON契約、UIの非阻害呼び出しを自動テストする。
 
 ## Risks
 

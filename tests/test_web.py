@@ -121,20 +121,35 @@ def test_static_assets_are_local_safe_and_have_content_headers(tmp_path: Path) -
     assert "default-src 'self'" in headers["Content-Security-Policy"]
     assert "ニュース集計".encode() in html
     assert "DB・WAL・SHM・journal".encode() in html
+    search_form_start = html.index(b'<form id="search-form">')
+    search_form_end = html.index(b"</form>", search_form_start)
+    category_select = html.index(b'<select id="category" name="category">')
+    assert search_form_start < category_select < search_form_end
+    assert html.index("すべて".encode(), category_select) < html.index(
+        b"</select>", category_select
+    )
     assert b'id="article-sort"' in html
-    assert b'id="category-selection"' in html
-    assert b'id="clear-category"' in html
+    assert b'id="category-selection"' not in html
+    assert b'id="clear-category"' not in html
     assert b"localStorage" in javascript
     assert b"newsAggregator:v1:favorites" in javascript
     assert b"innerHTML" not in javascript
     assert b"setInterval(refreshView, REFRESH_INTERVAL_MS)" in javascript
     assert b'addEventListener("visibilitychange"' in javascript
-    assert b"loadSources(), loadStorage()" in javascript
+    assert b"loadSources(), loadCategories(), loadStorage()" in javascript
     assert b'category: "", sort: "latest"' in javascript
     assert b"q: state.search.query" in javascript
     assert b"category: state.search.category" in javascript
+    assert b'category: byId("category").value' in javascript
     assert b"sort: state.search.sort" in javascript
     assert b"commitSearchParameters();" in javascript
+    assert b"async function loadCategories()" in javascript
+    assert b'await requestJson("/api/categories")' in javascript
+    assert b"const selectedCategory = select.value" in javascript
+    assert b'element("option", "", category)' in javascript
+    assert b"ensureCategoryOption(selectedCategory)" in javascript
+    assert b"ensureCategoryOption(category)" in javascript
+    assert b'byId("category").value = category' in javascript
     assert b'element("button", `category-button' in javascript
     assert b"article.tags.filter(Boolean)" in javascript
     assert b'element("span", "tag", value)' in javascript
@@ -156,21 +171,26 @@ def test_article_source_and_storage_json_endpoints(tmp_path: Path) -> None:
             server, "/api/articles?q=AI+%E6%9D%B1%E4%BA%AC&source=yahoo"
         )
         source_status, _, source_body = _request(server, "/api/sources")
+        category_status, category_headers, category_body = _request(server, "/api/categories")
         storage_status, _, storage_body = _request(server, "/api/storage")
     finally:
         _stop_server(server, thread)
 
     articles = json.loads(article_body)
     sources = json.loads(source_body)["sources"]
+    categories = json.loads(category_body)
     storage = json.loads(storage_body)
-    assert article_status == source_status == storage_status == 200
+    assert article_status == source_status == category_status == storage_status == 200
     assert article_headers.get_content_type() == "application/json"
     assert article_headers["Cache-Control"] == "no-store"
+    assert category_headers.get_content_type() == "application/json"
+    assert category_headers["Cache-Control"] == "no-store"
     assert articles["total"] == 1
     assert articles["articles"][0]["timestamp_kind"] == "portal_provided"
     assert articles["articles"][0]["published_at"] is None
     assert articles["articles"][0]["view_count"] == 0
     assert len(sources) == 6
+    assert categories == {"categories": ["IT"]}
     ledge = next(source for source in sources if source["id"] == "ledge_ai")
     assert ledge["status"] == "disabled"
     assert ledge["disabled_reason"] == "利用許可未確認のため取得しません"

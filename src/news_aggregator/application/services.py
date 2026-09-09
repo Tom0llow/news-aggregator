@@ -69,6 +69,9 @@ class NewsApplication:
     def search(self, search: ArticleSearch) -> ArticlePage:
         return self._repository.search_articles(search)
 
+    def article_categories(self) -> tuple[str, ...]:
+        return self._repository.article_categories()
+
     def increment_article_view(self, article_id: int) -> int | None:
         return self._repository.increment_article_view(article_id)
 

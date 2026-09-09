@@ -79,8 +79,9 @@ the original publisher's publication time.
 ## Local HTTP boundary
 
 The server validates both the bind address and `Host` as IPv4 loopback. Fixed
-static routes and same-origin JSON endpoints expose article search, source state,
-storage usage, manual fetching, and an atomic article view-count increment. The
+static routes and same-origin JSON endpoints expose article search, read-only
+discovery of categories stored across all articles, source state, storage usage,
+manual fetching, and an atomic article view-count increment. The
 increment endpoint accepts only an empty JSON object and records a local article
 link activation, not a publisher-provided view. There is no arbitrary URL fetch
 endpoint, CORS opt-in, authentication, or server-side user profile.
@@ -151,6 +152,10 @@ Prefer:
 - infrastructure adapters: focused integration tests
 - external protocols: contract/integration tests
 - end-to-end: only critical flows
+
+Category discovery is verified at the repository and JSON boundaries, including
+empty databases, duplicate and empty values, deterministic ordering, and cache
+headers.
 
 Behavioral changes require meaningful tests.
 

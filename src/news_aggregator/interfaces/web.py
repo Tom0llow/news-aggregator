@@ -55,6 +55,11 @@ class NewsRequestHandler(BaseHTTPRequestHandler):
                 self._serve_static(parsed.path)
             elif parsed.path == "/api/articles":
                 self._serve_articles(parse_qs(parsed.query, keep_blank_values=True))
+            elif parsed.path == "/api/categories":
+                self._send_json(
+                    HTTPStatus.OK,
+                    {"categories": list(self.application.article_categories())},
+                )
             elif parsed.path == "/api/sources":
                 self._send_json(HTTPStatus.OK, {"sources": self._source_payload()})
             elif parsed.path == "/api/storage":
