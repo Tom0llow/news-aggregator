@@ -9,7 +9,9 @@ const state = {
   limit: 30,
   total: 0,
   articles: [],
-  search: { query: "", dateFrom: "", dateTo: "", source: "" },
+  search: {
+    query: "", dateFrom: "", dateTo: "", source: "", category: "", sort: "latest",
+  },
 };
 const REFRESH_INTERVAL_MS = 60_000;
 let refreshPromise = null;
@@ -60,6 +62,8 @@ function searchParameters() {
     date_from: state.search.dateFrom,
     date_to: state.search.dateTo,
     source: state.search.source,
+    category: state.search.category,
+    sort: state.search.sort,
   })) {
     if (value) parameters.set(name, value);
   }
@@ -72,6 +76,8 @@ function commitSearchParameters() {
     dateFrom: byId("date-from").value,
     dateTo: byId("date-to").value,
     source: byId("source").value,
+    category: byId("category").value,
+    sort: byId("article-sort").value,
   };
 }
 
@@ -110,6 +116,7 @@ function articleCard(article, favorites) {
   const card = element("article", "article-card");
   const kind = article.source_kind === "portal" ? "ポータル記事" : "配信元記事";
   const timeKind = article.timestamp_kind === "portal_provided" ? "ポータル提供日時" : "公開日時";
+  const details = element("div", "meta", articleDetails(article, timeKind));
   card.append(element("div", "meta", `${article.source_name} · ${article.publisher} · ${kind}`));
   const heading = element("h3");
   const link = element("a", "", article.title);
@@ -118,14 +125,23 @@ function articleCard(article, favorites) {
     link.href = href;
     link.target = "_blank";
     link.rel = "noopener noreferrer";
+    link.addEventListener("click", () => { void recordArticleView(article, details, timeKind); });
   }
   heading.append(link);
   card.append(heading);
-  card.append(element("div", "meta", `${timeKind}: ${formatDate(article.published_at)}`));
+  card.append(details);
   if (article.summary) card.append(element("p", "summary", article.summary));
   const footer = element("div", "article-footer");
   const tags = element("div", "tag-list");
-  for (const value of [article.category, ...article.tags].filter(Boolean)) tags.append(element("span", "tag", value));
+  if (article.category) {
+    const category = element("button", `category-button${state.search.category === article.category ? " active" : ""}`, article.category);
+    category.type = "button";
+    category.setAttribute("aria-pressed", String(state.search.category === article.category));
+    category.title = `カテゴリ「${article.category}」の記事を表示`;
+    category.addEventListener("click", () => selectCategory(article.category));
+    tags.append(category);
+  }
+  for (const value of article.tags.filter(Boolean)) tags.append(element("span", "tag", value));
   footer.append(tags);
   const favorite = element("button", `favorite-button${favorites.has(article.url) ? " active" : ""}`, favorites.has(article.url) ? "★ 保存済み" : "☆ お気に入り");
   favorite.type = "button";
@@ -133,6 +149,32 @@ function articleCard(article, favorites) {
   footer.append(favorite);
   card.append(footer);
   return card;
+}
+
+function articleDetails(article, timeKind) {
+  const views = Number.isSafeInteger(article.view_count) ? article.view_count : 0;
+  return `${timeKind}: ${formatDate(article.published_at)} · ローカル閲覧 ${views.toLocaleString("ja-JP")} 回`;
+}
+
+async function recordArticleView(article, details, timeKind) {
+  try {
+    const payload = await requestJson(`/api/articles/${article.id}/views`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+    });
+    if (!Number.isSafeInteger(payload.view_count) || payload.view_count < 0) return;
+    article.view_count = Math.max(Number.isSafeInteger(article.view_count) ? article.view_count : 0, payload.view_count);
+    details.textContent = articleDetails(article, timeKind);
+  } catch (_error) {
+    // Counting is best-effort and must never interfere with opening the external article.
+  }
+}
+
+function selectCategory(category) {
+  ensureCategoryOption(category);
+  byId("category").value = category;
+  state.search.category = category;
+  state.page = 1;
+  loadArticles();
 }
 
 function toggleFavorite(url) {
@@ -208,6 +250,30 @@ async function loadSources() {
   }
 }
 
+function ensureCategoryOption(category) {
+  const select = byId("category");
+  if (!category || Array.from(select.options).some((option) => option.value === category)) return;
+  const option = element("option", "", category);
+  option.value = category;
+  select.append(option);
+}
+
+async function loadCategories() {
+  const payload = await requestJson("/api/categories");
+  const select = byId("category");
+  const selectedCategory = select.value;
+  const allCategories = element("option", "", "すべて");
+  allCategories.value = "";
+  select.replaceChildren(allCategories);
+  for (const category of payload.categories) {
+    const option = element("option", "", category);
+    option.value = category;
+    select.append(option);
+  }
+  ensureCategoryOption(selectedCategory);
+  select.value = selectedCategory;
+}
+
 function statusLabel(status) {
   return ({ success: "正常", error: "エラー", skipped: "間隔調整", disabled: "無効", never: "未取得" })[status] || status;
 }
@@ -219,7 +285,7 @@ async function loadStorage() {
 
 function refreshView() {
   if (refreshPromise) return refreshPromise;
-  refreshPromise = Promise.all([loadArticles(), loadSources(), loadStorage()])
+  refreshPromise = Promise.all([loadArticles(), loadSources(), loadCategories(), loadStorage()])
     .catch((error) => {
       byId("fetch-message").textContent = error.message;
     })
@@ -242,6 +308,11 @@ byId("save-keyword").addEventListener("click", () => {
   renderSavedKeywords();
 });
 byId("favorites-only").addEventListener("change", renderArticles);
+byId("article-sort").addEventListener("change", () => {
+  state.search.sort = byId("article-sort").value;
+  state.page = 1;
+  loadArticles();
+});
 byId("fetch-button").addEventListener("click", async () => {
   const button = byId("fetch-button");
   button.disabled = true;

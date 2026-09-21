@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from enum import StrEnum
 
+from news_aggregator.domain.rules import MAX_CATEGORY_LENGTH
+
 
 class SourceKind(StrEnum):
     """How an article link relates to its publisher."""
@@ -17,6 +19,13 @@ class TimestampKind(StrEnum):
 
     PUBLISHED = "published"
     PORTAL_PROVIDED = "portal_provided"
+
+
+class ArticleSort(StrEnum):
+    """Supported article list orderings."""
+
+    LATEST = "latest"
+    VIEWS = "views"
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +85,7 @@ class Article:
     category: str | None
     tags: tuple[str, ...]
     fetch_error: str | None
+    view_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,6 +96,8 @@ class ArticleSearch:
     date_to: date | None = None
     page: int = 1
     limit: int = 30
+    category: str | None = None
+    sort: ArticleSort = ArticleSort.LATEST
 
     def __post_init__(self) -> None:
         if self.page < 1:
@@ -98,6 +110,13 @@ class ArticleSearch:
             raise ValueError("date_to は9999-12-31より前の日付を指定してください")
         if self.date_from and self.date_to and self.date_from > self.date_to:
             raise ValueError("date_from は date_to 以前にしてください")
+        if self.category is not None:
+            if not self.category.strip():
+                raise ValueError("category は空にできません")
+            if len(self.category) > MAX_CATEGORY_LENGTH:
+                raise ValueError("category が長すぎます")
+        if not isinstance(self.sort, ArticleSort):
+            raise ValueError("sort は latest または views で指定してください")
 
 
 @dataclass(frozen=True, slots=True)

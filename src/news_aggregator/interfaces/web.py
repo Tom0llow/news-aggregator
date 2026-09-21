@@ -14,6 +14,7 @@ from news_aggregator.application.services import FetchInProgressError, NewsAppli
 from news_aggregator.domain.models import (
     Article,
     ArticleSearch,
+    ArticleSort,
     FeedFetchResult,
     FeedState,
     FetchReport,
@@ -24,6 +25,9 @@ LOGGER = logging.getLogger(__name__)
 MAX_REQUEST_BODY_BYTES = 1_024
 MAX_QUERY_LENGTH = 500
 MAX_KEYWORDS = 20
+MAX_ARTICLE_ID = 9_223_372_036_854_775_807
+_ARTICLE_VIEW_PATH_PREFIX = "/api/articles/"
+_ARTICLE_VIEW_PATH_SUFFIX = "/views"
 
 _STATIC_ASSETS = {
     "/": ("index.html", "text/html; charset=utf-8", "no-cache"),
@@ -51,6 +55,11 @@ class NewsRequestHandler(BaseHTTPRequestHandler):
                 self._serve_static(parsed.path)
             elif parsed.path == "/api/articles":
                 self._serve_articles(parse_qs(parsed.query, keep_blank_values=True))
+            elif parsed.path == "/api/categories":
+                self._send_json(
+                    HTTPStatus.OK,
+                    {"categories": list(self.application.article_categories())},
+                )
             elif parsed.path == "/api/sources":
                 self._send_json(HTTPStatus.OK, {"sources": self._source_payload()})
             elif parsed.path == "/api/storage":
@@ -79,12 +88,21 @@ class NewsRequestHandler(BaseHTTPRequestHandler):
         try:
             self._require_loopback_host()
             parsed = urlsplit(self.path)
-            if parsed.path != "/api/fetch":
+            if parsed.path == "/api/fetch":
+                self._require_same_origin_json()
+                report = self.application.fetch_all()
+                self._send_json(HTTPStatus.OK, _fetch_report_payload(report))
+                return
+            article_id = _article_view_id(parsed.path)
+            if article_id is None:
                 self._send_json(HTTPStatus.NOT_FOUND, {"error": "見つかりません"})
                 return
             self._require_same_origin_json()
-            report = self.application.fetch_all()
-            self._send_json(HTTPStatus.OK, _fetch_report_payload(report))
+            view_count = self.application.increment_article_view(article_id)
+            if view_count is None:
+                self._send_json(HTTPStatus.NOT_FOUND, {"error": "記事が見つかりません"})
+                return
+            self._send_json(HTTPStatus.OK, {"view_count": view_count})
         except FetchInProgressError as exc:
             self._send_json(HTTPStatus.CONFLICT, {"error": str(exc)})
         except ValueError as exc:
@@ -100,6 +118,13 @@ class NewsRequestHandler(BaseHTTPRequestHandler):
 
     def log_message(self, message_format: str, *args: object) -> None:
         LOGGER.info("HTTP %s", message_format % args)
+
+    def log_request(self, code: int | str = "-", size: int | str = "-") -> None:
+        if getattr(self, "command", None) == "POST" and _is_article_view_request_target(
+            getattr(self, "path", "")
+        ):
+            return
+        super().log_request(code, size)
 
     def _serve_static(self, path: str) -> None:
         name, content_type, cache_control = _STATIC_ASSETS[path]
@@ -122,11 +147,15 @@ class NewsRequestHandler(BaseHTTPRequestHandler):
         valid_source_ids = {source.id for source in self.application.sources}
         if source_id is not None and source_id not in valid_source_ids:
             raise ValueError("未登録のニュースソースです")
+        category = _single_query_value(query, "category") if "category" in query else None
+        sort = _article_sort(query)
         search = ArticleSearch(
             keywords=keywords,
             source_id=source_id,
             date_from=_optional_date(_single_query_value(query, "date_from")),
             date_to=_optional_date(_single_query_value(query, "date_to")),
+            category=category,
+            sort=sort,
             page=_positive_int(_single_query_value(query, "page"), default=1, name="page"),
             limit=_positive_int(_single_query_value(query, "limit"), default=30, name="limit"),
         )
@@ -282,6 +311,40 @@ def _positive_int(value: str, *, default: int, name: str) -> int:
     return parsed
 
 
+def _article_sort(query: dict[str, list[str]]) -> ArticleSort:
+    if "sort" not in query:
+        return ArticleSort.LATEST
+    value = _single_query_value(query, "sort")
+    try:
+        return ArticleSort(value)
+    except ValueError as exc:
+        raise ValueError("sort は latest または views で指定してください") from exc
+
+
+def _article_view_id(path: str) -> int | None:
+    if not _is_article_view_path(path):
+        return None
+    raw_id = path[len(_ARTICLE_VIEW_PATH_PREFIX) : -len(_ARTICLE_VIEW_PATH_SUFFIX)]
+    if not raw_id.isascii() or not raw_id.isdigit():
+        raise ValueError("記事IDは正の整数で指定してください")
+    article_id = int(raw_id)
+    if not 1 <= article_id <= MAX_ARTICLE_ID:
+        raise ValueError("記事IDは正の整数で指定してください")
+    return article_id
+
+
+def _is_article_view_request_target(request_target: str) -> bool:
+    try:
+        path = urlsplit(request_target).path
+    except ValueError:
+        path = request_target.partition("?")[0]
+    return _is_article_view_path(path)
+
+
+def _is_article_view_path(path: str) -> bool:
+    return path.startswith(_ARTICLE_VIEW_PATH_PREFIX) and path.endswith(_ARTICLE_VIEW_PATH_SUFFIX)
+
+
 def _datetime_value(value: datetime | None) -> str | None:
     return value.isoformat().replace("+00:00", "Z") if value is not None else None
 
@@ -301,6 +364,7 @@ def _article_payload(article: Article) -> dict[str, object]:
         "fetched_at": _datetime_value(article.fetched_at),
         "category": article.category,
         "tags": list(article.tags),
+        "view_count": article.view_count,
     }
 
 

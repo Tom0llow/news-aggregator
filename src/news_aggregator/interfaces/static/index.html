@@ -39,6 +39,12 @@
               <option value="">すべて</option>
             </select>
           </label>
+          <label>
+            <span>カテゴリ</span>
+            <select id="category" name="category">
+              <option value="">すべて</option>
+            </select>
+          </label>
           <div class="form-actions">
             <button class="primary" type="submit">検索</button>
             <button id="save-keyword" type="button">キーワードを保存</button>
@@ -64,10 +70,19 @@
         <div>
           <div class="section-heading">
             <h2>記事</h2>
-            <label class="favorite-filter">
-              <input id="favorites-only" type="checkbox">
-              お気に入りのみ
-            </label>
+            <div class="article-controls">
+              <label class="sort-filter">
+                <span>並び順</span>
+                <select id="article-sort">
+                  <option value="latest">最新順</option>
+                  <option value="views">閲覧数順</option>
+                </select>
+              </label>
+              <label class="favorite-filter">
+                <input id="favorites-only" type="checkbox">
+                お気に入りのみ
+              </label>
+            </div>
           </div>
           <div id="articles" class="article-list" aria-live="polite"></div>
           <nav id="pagination" class="pagination" aria-label="検索結果ページ"></nav>

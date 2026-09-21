@@ -4,8 +4,9 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
-from news_aggregator.domain.models import ArticleSearch
+from news_aggregator.domain.models import ArticleSearch, ArticleSort
 from news_aggregator.domain.rules import (
+    MAX_CATEGORY_LENGTH,
     clean_tags,
     contains_japanese,
     ensure_aware_utc,
@@ -61,6 +62,7 @@ def test_aware_utc_conversion_rejects_naive_values() -> None:
 
 def test_article_search_validates_paging_and_date_order() -> None:
     assert ArticleSearch().limit == 30
+    assert ArticleSearch().sort is ArticleSort.LATEST
     with pytest.raises(ValueError, match="page"):
         ArticleSearch(page=0)
     with pytest.raises(ValueError, match="limit"):
@@ -72,3 +74,8 @@ def test_article_search_validates_paging_and_date_order() -> None:
         ArticleSearch(date_to=date.max)
     with pytest.raises(ValueError, match="date_from"):
         ArticleSearch(date_from=date(2026, 9, 1), date_to=date(2026, 8, 31))
+    with pytest.raises(ValueError, match="category"):
+        ArticleSearch(category=" ")
+    assert ArticleSearch(category="a" * MAX_CATEGORY_LENGTH).category == "a" * MAX_CATEGORY_LENGTH
+    with pytest.raises(ValueError, match="category"):
+        ArticleSearch(category="a" * (MAX_CATEGORY_LENGTH + 1))
